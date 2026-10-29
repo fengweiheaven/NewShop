@@ -1,0 +1,48 @@
+# Sites hosting identity and local hosting state
+.openai/
+
+# Dependencies and build caches; dist/ is the distributable application
+node_modules/
+.cache/
+.parcel-cache/
+.vite/
+
+# Intermediate analysis, private input files, and local outputs
+/work/
+/tmp/
+/temp/
+/outputs/
+/private/
+/backups/
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.tsv
+*.backup.json
+*backup*.json
+*Backup*.json
+*备份*.json
+
+# Environment configuration, credentials, and secret material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+*secret*.json
+*.token
+.npmrc
+
+# Local editor / OS files and logs
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.bak
