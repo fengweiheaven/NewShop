@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#142c3b">
-  <meta name="description" content="序单商贸代发工作台：建立商品映射库，归集不同格式订单，生成统一订单并转换供应商模板。">
+  <meta name="description" content="序单商贸代发工作台：建立商品映射库，归集不同格式订单，匹配后按供应商格式导出。">
   <title>序单 · 商贸订单工作台</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="extra.css">
@@ -25,8 +25,7 @@
       <nav class="main-nav">
         <button type="button" class="nav-item" data-view="suppliers"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.3l8 4.5"/></svg><span>商品映射库</span><small>01</small></button>
         <button type="button" class="nav-item active" data-view="import"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 3h9l5 5v13H5V3Z"/><path d="M14 3v6h5M8 14h8M8 17h5"/></svg><span>订单采集与匹配</span><small>02</small></button>
-        <button type="button" class="nav-item" data-view="unified"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10M3 15h18"/></svg><span>统一订单</span><small>03</small></button>
-        <button type="button" class="nav-item" data-view="export"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 3H5v18h14V9l-5-6Z"/><path d="M14 3v6h5M8 15h7m-3-3 3 3-3 3"/></svg><span>供应商模板</span><small>04</small></button>
+        <button type="button" class="nav-item" data-view="export"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 3H5v18h14V9l-5-6Z"/><path d="M14 3v6h5M8 15h7m-3-3 3 3-3 3"/></svg><span>供应商格式</span><small>03</small></button>
       </nav>
       <div class="sidebar-guide"><span class="guide-line"></span><p>把不同的订单，<br>整理成同一种秩序。</p><small>从商品映射到供应商交单</small></div>
       <div class="sidebar-bottom"><div class="local-mark"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 3.5 7 8 9 4.5-2 8-5 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg><span>文件在本机处理</span></div><div class="sidebar-version">序单工作台<span>V1.0</span></div></div>
@@ -37,7 +36,7 @@
         <div class="topbar-actions"><span class="save-badge"><i></i>数据保存在本浏览器</span><span class="topbar-divider"></span><button type="button" class="btn ghost small" id="backup-btn"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2v10m-4-4 4 4 4-4M3 12v5h14v-5"/></svg>备份数据</button><button type="button" class="btn ghost small" id="restore-btn"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 13V3m-4 4 4-4 4 4M3 12v5h14v-5"/></svg>恢复备份</button><input type="file" id="restore-input" accept=".json,application/json" hidden></div>
       </header>
       <main id="content" tabindex="-1"><div class="initial-loading"><span class="loading-spinner"></span><p>正在准备订单工作台…</p></div></main>
-      <footer class="app-footer"><span>序单 · 让每一笔订单都有迹可循</span><span>商品映射 → 订单匹配 → 统一订单 → 模板导出</span></footer>
+      <footer class="app-footer"><span>序单 · 让每一笔订单都有迹可循</span><span>商品映射 → 订单匹配 → 供应商格式导出</span></footer>
     </div>
   </div>
   <div id="modal-root"></div>

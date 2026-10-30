@@ -159,7 +159,7 @@ window.OrderSeed = {
         {
           "header": "订单号",
           "field": "orderNo",
-          "required": true,
+          "required": false,
           "fallback": ""
         },
         {
