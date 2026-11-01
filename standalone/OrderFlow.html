@@ -75,6 +75,9 @@
 
 /* 充值操作按钮 */
 .recon-actions{display:flex;gap:8px;align-items:center;padding-bottom:4px}
+
+/* 余额提醒 */
+.data-table .neg{color:var(--danger);font-weight:600}
 </style>
   <script>/*!
 
@@ -850,6 +853,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():view==='recon'?renderRecon():renderExport());
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
+    if (view === 'recon') maybeShowBalanceNotice();
   }
   function renderImport(){const s=summary();return `<div class="page-intro"><div><div class="eyebrow">DAILY ORDER WORKSPACE</div><h1>今天的订单，从这里开始</h1><p>批量导入客户表格，确认商品映射，再按供应商格式导出。</p></div><div class="intro-actions"><button class="btn secondary" id="demo-btn">体验示例</button><button class="btn" data-go="export" ${!s.ready?'disabled':''}>按供应商导出 ${icon('arrow')}</button></div></div>${stats()}
       <div class="workspace-grid"><section class="card"><div class="card-header"><h2>${icon('upload')} 导入客户订单</h2><span class="pill neutral">支持批量导入</span></div><div class="card-body"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="选择或拖入客户订单文件"><div class="upload-icon">${icon('upload')}</div><h3>拖入订单表格，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB</p><span class="drop-hint">自动识别表头 · 支持手动调整字段</span></div><input id="order-files" type="file" accept=".xlsx,.csv" multiple hidden></div></section>
@@ -1047,6 +1051,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return list;
   }
   const reconMoney = v => v == null ? '' : (Math.round(v * 100) / 100).toFixed(2);
+  let reconNoticeShown = false;
+  function balanceNoticeItems() {
+    const out = [];
+    for (const c of state.customers) {
+      const acc = reconAccount(c.name, 'customer');
+      if ((acc.count > 0 || acc.deposit > 0) && acc.balance <= 0) out.push({ name: c.name, deposit: acc.deposit, total: acc.total, balance: acc.balance });
+    }
+    return out.sort((a, b) => a.balance - b.balance);
+  }
+  function maybeShowBalanceNotice() {
+    if (reconNoticeShown) return;
+    reconNoticeShown = true;
+    if (state.reconNoticeDate === stamp()) return;
+    const items = balanceNoticeItems();
+    if (!items.length) return;
+    openModal('客户余额提醒', `<p class="muted">以下客户的账户余额已用完或欠款，建议先充值再继续发货：</p><div class="table-wrap"><table class="data-table"><thead><tr><th>客户</th><th>总充值</th><th>应收</th><th>余额</th></tr></thead><tbody>${items.map(i => `<tr><td>${esc(i.name)}</td><td class="numeric">¥${reconMoney(i.deposit)}</td><td class="numeric">¥${reconMoney(i.total)}</td><td class="numeric"><strong class="neg">¥${reconMoney(i.balance)}</strong></td></tr>`).join('')}</tbody></table></div>`, `<button class="btn secondary" data-cancel>知道了</button><button class="btn" id="mute-balance-notice">今天不再提示</button>`);
+    $('#mute-balance-notice').onclick = async () => { state.reconNoticeDate = stamp(); await save(); closeModal(); toast('今天不再提醒客户余额。'); };
+  }
   function renderRecon() {
     const mode = reconMode;
     const rows = reconBase();

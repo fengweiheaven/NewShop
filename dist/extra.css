@@ -57,3 +57,6 @@
 
 /* 充值操作按钮 */
 .recon-actions{display:flex;gap:8px;align-items:center;padding-bottom:4px}
+
+/* 余额提醒 */
+.data-table .neg{color:var(--danger);font-weight:600}
