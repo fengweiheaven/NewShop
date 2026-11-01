@@ -718,7 +718,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const EXPORT_FIELDS = [['orderNo','订单号'],['buyerNickname','买家昵称'],['recipient','收货人'],['address','详细地址'],['phone','收货电话'],['supplierSku','供应商商品编码'],['quantity','数量'],['productName','统一商品名称'],['sourceProductName','来源商品名称'],['internalSku','内部编码'],['spec','标准规格'],['customer','客户'],['remark','备注'],['date','下单时间'],['province','省'],['city','市'],['district','区'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['constant','固定值'],['blank','留空']];
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
   let state, db, view='import', filter='all', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
-  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],profiles:{},unified:null,history:[]});
+  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],profiles:{},unified:null,history:[]});
   const pById = id => state.products.find(p=>p.id===id);
   const sById = id => state.suppliers.find(s=>s.id===id);
   const invalidate = () => { state.unified=null; };
@@ -730,6 +730,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Quote-sheet fields added later: keep older saved workspaces readable.
     for(const p of v.products){p.barcode??='';p.brand??='';p.category??='';p.cost??='';p.groupPrice??='';p.broadcastPrice??='';p.suggestPrice??='';p.marginOwn??='';p.marginBroadcast??='';p.jdPrice??='';p.link??='';p.sourceFile??='';}
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
+    if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',createdAt:new Date().toISOString()});}}
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
@@ -764,6 +765,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Tab'&&$('#modal-root .modal')){const a=$$('button,input,select,textarea,[tabindex="0"]',$('#modal-root')).filter(x=>!x.disabled);if(!a.length)return;const first=a[0],last=a[a.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
   }
   function validateBackup(v){
+    if(!Array.isArray(v.customers))v.customers=[];
     if(v.version!==1||!Array.isArray(v.suppliers)||!Array.isArray(v.products)||!Array.isArray(v.orders)||!Array.isArray(v.batches)||!v.profiles||typeof v.profiles!=='object')throw Error('这不是有效的序单数据备份。');
     if(v.orders.length>30000||v.products.length>30000)throw Error('备份记录过多（最多30,000行）。');
     const ids=a=>a.every(x=>x&&typeof x.id==='string')&&new Set(a.map(x=>x.id)).size===a.length;
@@ -815,13 +817,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   const summary=()=>activeRows().reduce((a,r)=>{const s=status(r);a[s.key]=(a[s.key]||0)+1;a.total++;if(s.key!=='excluded')a.quantity+=Number(r.quantity)||0;return a;},{total:0,ready:0,unmatched:0,invalid:0,duplicate:0,excluded:0,quantity:0});
   function badge(s){return `<span class="pill ${s.type}" title="${esc(s.issues?.join('；')||'')}">${s.type==='success'?icon('check'):''}${esc(s.label)}</span>`;}
-  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式'],['shipment','运单回填','补上平台订单号']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<3?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
+  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['customers','客户库','给订单的客户'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式'],['shipment','运单回填','补上平台订单号']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<4?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
   function stats(){const s=summary();return `<div class="stats-grid">${[['file','已采集订单',s.total,`本次 ${state.activeBatchIds.length} 个批次 · 历史 ${state.batches.length} 个`,'blue'],['check','匹配完成',s.ready,s.total?`${Math.round(s.ready/s.total*100)}% 的明细已就绪`:'导入订单后自动检查','green'],['clock','待处理',s.unmatched+s.invalid+s.duplicate,'映射与字段异常','amber'],['box','商品映射库',state.products.length,`${state.suppliers.length} 家供应商`,'purple']].map(([ic,l,v,n,c])=>`<article class="stat-card"><div class="stat-icon ${c}">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`;}
   function render(){
-    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],shipment:['运单回填','把快递单号表的订单号补上']};
+    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],customers:['客户库','维护给我们下订单的客户'],shipment:['运单回填','把快递单号表的订单号补上']};
     $('#page-title').textContent=titles[view][0];$('#page-subtitle').textContent=titles[view][1];
     $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
-    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='shipment'?renderShipment():renderExport());
+    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():renderExport());
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
   }
@@ -853,6 +855,68 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const range = t.metrics && t.metrics.min != null ? `供价 ¥${t.metrics.min}${t.metrics.max > t.metrics.min ? '–' + t.metrics.max : ''}` : (t.id === 'all' ? `${state.suppliers.length} 家供应商` : '暂无供价');
       return `<article class="supplier-tile ${active ? 'active' : ''}" data-supplier-tile="${esc(t.id)}" role="tab" tabindex="0" aria-selected="${active}" title="点击查看该供应商的商品"><span class="tile-avatar">${esc(t.name.slice(0, 1))}</span><span class="tile-body"><strong>${esc(t.name)}</strong><small>${t.count} 个商品 · ${esc(range)}</small>${brands.length ? `<span class="tile-brands">${brands.map(b => `<i>${esc(b)}</i>`).join('')}</span>` : ''}</span>${t.derived ? '<span class="tile-flag">品牌推断</span>' : ''}${t.id !== 'all' ? `<button type="button" class="tile-edit" data-edit-supplier="${esc(t.id)}">编辑</button>` : ''}</article>`;
     }).join('')}</div>`;
+  }
+  let customerQuery = '';
+  const customerByName = name => state.customers.find(c => norm(c.name) === norm(name));
+  function ensureCustomer(name) {
+    const n = String(name || '').trim();
+    if (!n) return null;
+    let c = customerByName(n);
+    if (!c) {
+      c = { id: uid(), name: n, contact: '', phone: '', note: '', createdAt: new Date().toISOString() };
+      state.customers.push(c);
+    }
+    return c;
+  }
+  function customerOrderCount(name) {
+    const key = norm(name);
+    return state.orders.filter(o => norm(o.customer) === key).length;
+  }
+  function customerModal(id) {
+    const editing = !!id;
+    const c = copy(state.customers.find(x => x.id === id) || { id: uid(), name: '', contact: '', phone: '', note: '' });
+    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
+    $('#save-customer').onclick = async () => {
+      const f = new FormData($('#customer-form'));
+      ['name', 'contact', 'phone', 'note'].forEach(k => c[k] = String(f.get(k) || '').trim());
+      if (!c.name) { $('#customer-error').textContent = '请填写客户名称。'; return; }
+      if (state.customers.some(x => x.id !== c.id && norm(x.name) === norm(c.name))) { $('#customer-error').textContent = '客户名称已存在。'; return; }
+      const idx = state.customers.findIndex(x => x.id === c.id);
+      idx < 0 ? state.customers.push(c) : state.customers.splice(idx, 1, c);
+      await save(); closeModal(); render(); toast('客户已保存。');
+    };
+    $('#delete-customer')?.addEventListener('click', () => {
+      const used = customerOrderCount(c.name);
+      confirmDialog('删除客户', used ? `「${c.name}」还有 ${used} 条订单记录，删除客户不会删除订单，订单上的客户名称会保留。` : `确认删除「${c.name}」？`, async () => {
+        state.customers = state.customers.filter(x => x.id !== c.id);
+        await save(); render(); toast('客户已删除。');
+      });
+    });
+  }
+  function renderCustomers() {
+    const q = norm(customerQuery);
+    const rows = state.customers
+      .filter(c => !q || norm([c.name, c.contact, c.phone, c.note].join(' ')).includes(q))
+      .map(c => ({ ...c, orders: customerOrderCount(c.name) }))
+      .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name, 'zh-CN'));
+    return `<div class="page-intro"><div><div class="eyebrow">CUSTOMER LIBRARY</div><h1>谁给我们下的单</h1><p>把给订单的客户维护成一份清单；导入订单时按名字自动挂上，也能在这里补联系人和备注。</p></div><div class="intro-actions"><button class="btn" id="new-customer">${icon('plus')} 新增客户</button></div></div>
+      ${rows.length ? `<div class="stats-grid">${[['box', '客户数', state.customers.length, '已登记给单的客户'], ['file', '有订单的客户', state.customers.filter(c => customerOrderCount(c.name) > 0).length, '至少下过一单'], ['check', '订单总数', state.orders.length, '含历史批次']].map(([ic, l, v, n]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${l === '订单总数' ? '条' : '个'}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>` : ''}
+      <section class="card"><div class="card-header"><div><h2>客户库 <span class="count">${state.customers.length}</span></h2><p class="muted">按订单数排序；导入订单时出现的新客户会自动登记。</p></div><div class="intro-actions"><button class="btn ghost small" id="sync-customers">从历史订单补登记</button></div></div>
+      <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="customer-search" class="search-input" value="${esc(customerQuery)}" placeholder="搜索客户、联系人、电话" aria-label="搜索客户"></label></div>
+      ${rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>客户名称</th><th>联系人</th><th>联系电话</th><th>订单数</th><th>备注</th><th>操作</th></tr></thead><tbody>${rows.map(c => `<tr><td class="product-cell"><strong>${esc(c.name)}</strong><small>${esc((c.createdAt || '').slice(0, 10))}</small></td><td>${esc(c.contact || '—')}</td><td class="mono">${esc(c.phone || '—')}</td><td class="numeric">${c.orders}</td><td>${esc(c.note || '—')}</td><td><button class="text-link" data-edit-customer="${esc(c.id)}">编辑</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('box')}<h3>${state.customers.length ? '没有匹配的客户' : '还没有客户'}</h3><p>${state.customers.length ? '换个关键词试试。' : '导入订单时会按客户名自动登记；也可以点右上角「新增客户」先建好。'}</p></div>`}</section>`;
+  }
+  function bindCustomers() {
+    $('#new-customer')?.addEventListener('click', () => customerModal());
+    $$('[data-edit-customer]').forEach(b => b.onclick = () => customerModal(b.dataset.editCustomer));
+    $('#customer-search')?.addEventListener('input', e => { customerQuery = e.target.value; render(); const el = $('#customer-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+    $('#sync-customers')?.addEventListener('click', async () => {
+      let added = 0;
+      const before = state.customers.length;
+      for (const o of state.orders) if (String(o.customer || '').trim() && !customerByName(o.customer)) ensureCustomer(o.customer);
+      added = state.customers.length - before;
+      if (added) { await save(); render(); toast(`已从历史订单补登记 ${added} 个客户。`); }
+      else toast('历史订单里的客户都已登记。');
+    });
   }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';
@@ -927,6 +991,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $('#product-search')?.addEventListener('input',e=>{query=e.target.value;productPage=1;$('#products-table').innerHTML=productsTable();const badge=$('#product-count');if(badge)badge.textContent=String(visibleProducts().length);bindProductActions();});
     $('#review-candidates')?.addEventListener('click',reviewCandidates);
     bindShipment();
+    bindCustomers();
     $('#import-quote')?.addEventListener('click',()=>$('#quote-file').click());
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
@@ -971,7 +1036,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const batchId=uid(),orders=[],get=(r,k)=>d.map[k]===''?'':String(r[Number(d.map[k])]??'').trim();
       s.rows.slice(d.header+1).forEach((raw,idx)=>{if(!raw.some(v=>String(v??'').trim()))return;if(headers.every((h,i)=>String(h??'')===String(raw[i]??'')))return;const row={id:uid(),batchId,customer:d.customer,sourceFile:d.book.name,sourceSheet:s.name,sourceRow:d.header+idx+2,excluded:false,manual:false,productId:''};for(const[k]of FIELDS)row[k]=get(raw,k);row.phone=normalizePhone(row.phone);row.address=[row.province,row.city,row.district,row.address].filter(Boolean).join('');row.quantity=row.quantity===''?'':Number(row.quantity.replace(/,/g,''));if(!Number.isFinite(row.quantity))row.quantity='';if(/^\d{5}(\.\d+)?$/.test(String(row.date||'').trim()))row.date=excelSerialText(row.date);row.raw=Object.fromEntries(headers.map((h,i)=>[String(h||`列${i+1}`),String(raw[i]??'')]));const existing=[...state.orders,...orders].find(o=>!o.excluded&&duplicateKey(o)===duplicateKey(row));if(existing&&row.orderNo)row.duplicateOf=existing.id;orders.push(row);});
       if(!orders.length){$('#import-error').textContent='所选表头下没有可导入的数据。';return;}if(state.orders.length+orders.length>30000){$('#import-error').textContent='工作区最多保留30,000行，请先备份并清理旧批次。';return;}
-      state.orders.push(...orders);state.batches.push({id:batchId,name:d.book.name,hash:d.hash,customer:d.customer,createdAt:new Date().toISOString(),rowCount:orders.length});includeNewBatch(batchId);state.profiles[headers.map(norm).join('|')]=copy(d.map);invalidate();history(`导入 ${orders.length} 行：${d.book.name}`);await save();pending.shift();closeModal();toast(`已导入 ${orders.length} 条订单明细。`);nextImport();};
+      ensureCustomer(d.customer);state.orders.push(...orders);state.batches.push({id:batchId,name:d.book.name,hash:d.hash,customer:d.customer,createdAt:new Date().toISOString(),rowCount:orders.length});includeNewBatch(batchId);state.profiles[headers.map(norm).join('|')]=copy(d.map);invalidate();history(`导入 ${orders.length} 行：${d.book.name}`);await save();pending.shift();closeModal();toast(`已导入 ${orders.length} 条订单明细。`);nextImport();};
   }
   function duplicateKey(r){return [norm(r.customer),String(r.orderNo||''),r.sourceLineId||[norm(r.sourceSku),norm(r.productName),norm(r.sourceSpec),norm(r.recipient),norm(r.phone),norm(r.address)].join('|'),r.duplicateDiscriminator||''].join('::');}
   function resolveDuplicateChoice(row,independent){
@@ -985,7 +1050,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   function orderModal(id){const row=state.orders.find(r=>r.id===id);if(!row)return;const s=status(row),p=s.product||suggestion(row);openModal('核对订单与商品映射',`<div class="order-source"><span class="pill neutral">${esc(row.customer)}</span><span>${esc(row.sourceFile)} · ${esc(row.sourceSheet)} 第 ${row.sourceRow} 行</span></div>${s.issues.length?`<div class="alert warning">${esc(s.issues.join('；'))}</div>`:''}<form id="order-form"><div class="form-grid">${field('订单号（可空）','orderNo',row.orderNo)}${field('客户名称','customer',row.customer,{required:true})}${field('来源商品名称','productName',row.productName,{required:true,full:true})}${field('来源规格','sourceSpec',row.sourceSpec)}${field('客户商品编码','sourceSku',row.sourceSku)}${selectField('确认对应的标准商品及供应商','productId',[['','请选择商品'],...state.products.map(p=>[p.id,`${sById(p.supplierId)?.name} · ${p.supplierSku} · ${p.name}`])],p?.id||'',true)}${p&&!s.product?`<div class="field full"><small class="amber-text">根据样表给出候选，请核对款式、包装规格和供应商后确认。</small></div>`:''}<label class="checkbox-row field full"><input type="checkbox" name="remember" checked><span>将此客户的商品名称与规格保存为映射，下次复用</span></label>${field('数量','quantity',row.quantity,{type:'number',required:true})}${field('收货人','recipient',row.recipient,{required:true})}${field('收货电话','phone',row.phone,{required:true})}${field('买家昵称（可空）','buyerNickname',row.buyerNickname)}${field('完整收货地址','address',row.address,{required:true,full:true})}${field('备注','remark',row.remark,{full:true})}<label class="checkbox-row field full"><input type="checkbox" name="excluded" ${row.excluded?'checked':''}><span>排除此行，不参与导出</span></label>${row.duplicateOf||row.duplicateDiscriminator?`<label class="checkbox-row field full"><input type="checkbox" name="independent" ${row.duplicateDiscriminator?'checked':''}><span>作为独立明细保留（确认这不是修订版本）</span></label>`:''}</div>${row.duplicateOf?'<div class="alert warning">这是重复或修订版本。默认保留本行并排除同组其他版本；真实独立订单行请勾选“作为独立明细保留”。</div>':''}<p class="form-error" id="order-error"></p><details><summary>查看原始字段</summary><div class="raw-grid">${Object.entries(row.raw||{}).map(([k,v])=>`<div><strong>${esc(k)}</strong><span>${esc(v)}</span></div>`).join('')}</div></details></form>`,`<button class="btn secondary" data-cancel>取消</button><button class="btn danger" id="delete-order">删除明细</button><button class="btn" id="save-order">保存并重新检查</button>`,true);
         $('#delete-order')?.addEventListener('click',()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{closeModal();await deleteOrders([row.id],'已删除 1 条明细。');}));
-$('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const product=pById(f.get('productId'));const excluded=f.has('excluded');if(!excluded&&!product){$('#order-error').textContent='请选择标准商品，或将本行排除。';return;}const keys=['orderNo','customer','productName','sourceSpec','sourceSku','recipient','phone','buyerNickname','address','remark'];keys.forEach(k=>row[k]=String(f.get(k)||'').trim());row.phone=normalizePhone(row.phone);row.quantity=Number(f.get('quantity'));row.excluded=excluded;row.productId=product?.id||'';row.manual=!!product;delete row.exportedAt;
+$('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const product=pById(f.get('productId'));const excluded=f.has('excluded');if(!excluded&&!product){$('#order-error').textContent='请选择标准商品，或将本行排除。';return;}const keys=['orderNo','customer','productName','sourceSpec','sourceSku','recipient','phone','buyerNickname','address','remark'];keys.forEach(k=>row[k]=String(f.get(k)||'').trim());row.phone=normalizePhone(row.phone);ensureCustomer(row.customer);row.quantity=Number(f.get('quantity'));row.excluded=excluded;row.productId=product?.id||'';row.manual=!!product;delete row.exportedAt;
       resolveDuplicateChoice(row,f.has('independent'));
       if(product&&f.has('remember')&&!excluded){const alias={customer:row.customer,name:row.productName,spec:row.sourceSpec,code:''};if(!product.aliases.some(a=>JSON.stringify(a)===JSON.stringify(alias)))product.aliases.push(alias);}
       refreshBatchExportFlags();invalidate();history('确认订单映射与字段');await save();closeModal();render();toast('已保存，匹配状态已更新。');};
@@ -1413,9 +1478,10 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
       <div class="sidebar-label">订单协同工作台</div>
       <nav class="main-nav">
         <button type="button" class="nav-item" data-view="suppliers"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.3l8 4.5"/></svg><span>商品映射库</span><small>01</small></button>
-        <button type="button" class="nav-item active" data-view="import"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 3h9l5 5v13H5V3Z"/><path d="M14 3v6h5M8 14h8M8 17h5"/></svg><span>订单采集与匹配</span><small>02</small></button>
-        <button type="button" class="nav-item" data-view="export"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 3H5v18h14V9l-5-6Z"/><path d="M14 3v6h5M8 15h7m-3-3 3 3-3 3"/></svg><span>供应商格式</span><small>03</small></button>
-        <button type="button" class="nav-item" data-view="shipment"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg><span>运单回填</span><small>04</small></button>
+        <button type="button" class="nav-item" data-view="customers"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.5a3 3 0 0 1 0 5.8M18 20c0-2.6-1-4.6-2.5-5.6"/></svg><span>客户库</span><small>02</small></button>
+        <button type="button" class="nav-item active" data-view="import"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 3h9l5 5v13H5V3Z"/><path d="M14 3v6h5M8 14h8M8 17h5"/></svg><span>订单采集与匹配</span><small>03</small></button>
+        <button type="button" class="nav-item" data-view="export"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 3H5v18h14V9l-5-6Z"/><path d="M14 3v6h5M8 15h7m-3-3 3 3-3 3"/></svg><span>供应商格式</span><small>04</small></button>
+        <button type="button" class="nav-item" data-view="shipment"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg><span>运单回填</span><small>05</small></button>
       </nav>
       <div class="sidebar-guide"><span class="guide-line"></span><p>把不同的订单，<br>整理成同一种秩序。</p><small>从商品映射到供应商交单</small></div>
       <div class="sidebar-bottom"><div class="local-mark"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 3.5 7 8 9 4.5-2 8-5 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg><span>文件在本机处理</span></div><div class="sidebar-version">序单工作台<span>V1.0</span></div></div>
