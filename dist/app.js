@@ -158,13 +158,13 @@
   }
   const summary=()=>activeRows().reduce((a,r)=>{const s=status(r);a[s.key]=(a[s.key]||0)+1;a.total++;if(s.key!=='excluded')a.quantity+=Number(r.quantity)||0;return a;},{total:0,ready:0,unmatched:0,invalid:0,duplicate:0,excluded:0,quantity:0});
   function badge(s){return `<span class="pill ${s.type}" title="${esc(s.issues?.join('；')||'')}">${s.type==='success'?icon('check'):''}${esc(s.label)}</span>`;}
-  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['customers','客户库','给订单的客户'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式'],['shipment','运单回填','补上平台订单号']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<4?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
+  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['customers','客户库','给订单的客户'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式'],['shipment','运单回填','补上平台订单号'],['recon','对账','按客户核对订单与金额']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<5?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
   function stats(){const s=summary();return `<div class="stats-grid">${[['file','已采集订单',s.total,`本次 ${state.activeBatchIds.length} 个批次 · 历史 ${state.batches.length} 个`,'blue'],['check','匹配完成',s.ready,s.total?`${Math.round(s.ready/s.total*100)}% 的明细已就绪`:'导入订单后自动检查','green'],['clock','待处理',s.unmatched+s.invalid+s.duplicate,'映射与字段异常','amber'],['box','商品映射库',state.products.length,`${state.suppliers.length} 家供应商`,'purple']].map(([ic,l,v,n,c])=>`<article class="stat-card"><div class="stat-icon ${c}">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`;}
   function render(){
-    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],customers:['客户库','维护给我们下订单的客户'],shipment:['运单回填','把快递单号表的订单号补上']};
+    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],customers:['客户库','维护给我们下订单的客户'],shipment:['运单回填','把快递单号表的订单号补上'],recon:['对账','按客户汇总订单、商品与金额']};
     $('#page-title').textContent=titles[view][0];$('#page-subtitle').textContent=titles[view][1];
     $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
-    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():renderExport());
+    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():view==='recon'?renderRecon():renderExport());
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
   }
@@ -259,6 +259,78 @@
       else toast('历史订单里的客户都已登记。');
     });
   }
+  let reconCustomer = '';
+  let reconScope = 'all';
+  function reconBase() {
+    return (reconScope === 'active' ? activeRows() : state.orders).filter(o => !o.excluded);
+  }
+  function reconLine(o) {
+    const st = status(o), p = st.product;
+    const qty = Number(o.quantity) || 0;
+    const raw = o.unitPrice === '' || o.unitPrice == null ? '' : String(o.unitPrice).trim();
+    const price = raw === '' ? null : (Number(raw) || 0);
+    const suggest = p && p.suggestPrice !== '' && p.suggestPrice != null ? Number(p.suggestPrice) : null;
+    return {
+      customer: String(o.customer || '').trim() || '未命名客户',
+      orderNo: String(o.orderNo || ''), date: String(o.date || ''),
+      product: p ? p.name : String(o.productName || ''), spec: p ? (p.spec || '') : String(o.sourceSpec || ''),
+      qty, price, amount: price == null ? null : Math.round(price * qty * 100) / 100,
+      suggest: Number.isFinite(suggest) ? suggest : null,
+      supplier: p ? (sById(p.supplierId)?.name || '') : '', sku: p ? (p.supplierSku || '') : '',
+      recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
+    };
+  }
+  function reconCustomers(rows) {
+    const map = new Map();
+    for (const o of rows) {
+      const name = String(o.customer || '').trim() || '未命名客户';
+      if (!map.has(name)) map.set(name, { name, count: 0, amount: 0, noPrice: 0 });
+      const item = map.get(name);
+      item.count++;
+      const line = reconLine(o);
+      if (line.amount == null) item.noPrice++;
+      else item.amount += line.amount;
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }
+  function renderRecon() {
+    const rows = reconBase();
+    const customers = reconCustomers(rows);
+    const pick = reconCustomer && customers.some(c => c.name === reconCustomer) ? reconCustomer : '';
+    const own = pick ? rows.filter(o => (String(o.customer || '').trim() || '未命名客户') === pick) : rows;
+    const lines = own.map(reconLine).sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.orderNo.localeCompare(b.orderNo));
+    const units = lines.reduce((n, l) => n + l.qty, 0);
+    const amount = lines.reduce((n, l) => n + (l.amount || 0), 0);
+    const noPrice = lines.filter(l => l.amount == null).length;
+    const money = v => v == null ? '' : (Math.round(v * 100) / 100).toFixed(2);
+    return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>按客户汇总订单明细（商品、数量、单价、金额）；已排除的明细不计入。</p></div><div class="intro-actions">${rows.length ? `<button class="btn secondary" id="recon-export">${icon('download')} 导出对账单</button>` : ''}</div></div>
+      ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
+      <div class="stats-grid">${[['box', '客户数', customers.length, '有订单的客户', '个'], ['file', '订单明细', lines.length, pick || '全部客户', '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', '金额合计', money(amount), noPrice ? `还有 ${noPrice} 条缺单价` : '按订单单价计算', '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
+      <div class="export-layout"><aside class="card export-list"><div class="card-header"><h2>客户 <span class="count">${customers.length}</span></h2></div>
+        <button class="export-group ${pick === '' ? 'active' : ''}" data-recon-customer=""><span class="supplier-avatar">全</span><span><strong>全部客户</strong><small>${rows.length} 条明细</small></span>${icon('arrow')}</button>
+        ${customers.map(c => `<button class="export-group ${pick === c.name ? 'active' : ''}" data-recon-customer="${esc(c.name)}"><span class="supplier-avatar">${esc(c.name.slice(0, 1))}</span><span><strong>${esc(c.name)}</strong><small>${c.count} 条明细 · ¥${money(c.amount)}</small></span>${icon('arrow')}</button>`).join('')}
+      </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : '全部客户'} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · 合计 ¥${money(amount)}${noPrice ? ` · ${noPrice} 条缺单价` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
+        ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有单价（源表未提供），金额不计入合计；导出后可在 Excel 里补价。</span></div>` : ''}
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>下单时间</th>${pick ? '' : '<th>客户</th>'}<th>商品</th><th>数量</th><th>单价</th><th>金额</th><th>供应商</th><th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="mono">${esc(l.orderNo || '—')}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td>${pick ? '' : `<td>${esc(l.customer)}</td>`}<td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(money(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(money(l.amount))}</td><td>${esc(l.supplier || '—')}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>
+        <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
+  }
+  async function exportRecon() {
+    const rows = reconBase();
+    const customers = reconCustomers(rows);
+    const pick = reconCustomer && customers.some(c => c.name === reconCustomer) ? reconCustomer : '';
+    const own = pick ? rows.filter(o => (String(o.customer || '').trim() || '未命名客户') === pick) : rows;
+    const lines = own.map(reconLine);
+    const headers = ['订单号', '下单时间', '客户', '商品', '规格', '数量', '单价', '金额', '供应商', '供应商编码', '收货人', '电话', '地址', '状态'];
+    const data = lines.map(l => [l.orderNo, l.date, l.customer, l.product, l.spec, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.supplier, l.sku, l.recipient, l.phone, l.address, l.status]);
+    const name = pick ? `${pick}_对账` : '全部客户_对账';
+    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: '对账', filename: `${name}_${stamp()}.xlsx` });
+    toast(`已导出 ${data.length} 条对账明细。`);
+  }
+  function bindRecon() {
+    $$('[data-recon-customer]').forEach(b => b.onclick = () => { reconCustomer = b.dataset.reconCustomer; render(); });
+    $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
+    $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
+  }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';
     const sel = supplierFilter === 'all' ? null : sById(supplierFilter);
@@ -333,6 +405,7 @@
     $('#review-candidates')?.addEventListener('click',reviewCandidates);
     bindShipment();
     bindCustomers();
+    bindRecon();
     $('#import-quote')?.addEventListener('click',()=>$('#quote-file').click());
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
