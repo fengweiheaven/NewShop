@@ -71,8 +71,8 @@
     // Quote-sheet fields added later: keep older saved workspaces readable.
     for(const p of v.products){p.barcode??='';p.brand??='';p.category??='';p.cost??='';p.groupPrice??='';p.broadcastPrice??='';p.suggestPrice??='';p.marginOwn??='';p.marginBroadcast??='';p.jdPrice??='';p.link??='';p.sourceFile??='';}
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
-    for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
+    for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
@@ -87,8 +87,14 @@
       state = await new Promise((resolve,reject)=>{const r=db.transaction('workspace').objectStore('workspace').get('state');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
     } catch(e) {storageFailure=true;}
     if(!state || state.version!==1) state=seed();
-    migrateScope(state);
-    bindShell();render();
+    try{migrateScope(state);}catch(e){console.error("[OrderFlow] 数据迁移失败",e);}
+    bindShell();
+    try{render();}catch(e){
+      console.error("[OrderFlow] 页面渲染失败",e);
+      const box=document.getElementById("content");
+      if(box){box.innerHTML="";const note=document.createElement("div");note.className="alert warning";note.style.margin="24px";note.textContent="页面初始化失败："+(e&&e.message?e.message:e)+"。请在浏览器控制台查看详细错误，或用右上角「恢复备份」还原数据。";box.append(note);}
+      toast("页面初始化失败，请查看控制台或恢复备份。","warning");
+    }
     if(storageFailure)toast('浏览器未允许本地存储，请在关闭前导出备份。','warning');
   }
   async function save() {
