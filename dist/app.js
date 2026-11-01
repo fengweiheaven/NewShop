@@ -74,6 +74,7 @@
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
     if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
+    for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
@@ -297,52 +298,64 @@
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
     };
   }
-  function rechargeRecords(name) {
+  const rechargeKind = r => r.kind || 'customer';
+  const rechargeName = r => r.name || r.customer || '';
+  const rechargeLabel = kind => kind === 'supplier' ? '供应商' : '客户';
+  function rechargeRecords(name, kind = 'customer') {
     const key = norm(name);
     return state.recharges
-      .filter(r => norm(r.customer) === key)
+      .filter(r => rechargeKind(r) === kind && norm(rechargeName(r)) === key)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
   }
-  function reconDeposit(name) {
-    return rechargeRecords(name).reduce((n, r) => n + (Number(r.amount) || 0), 0);
+  function reconDeposit(name, kind = 'customer') {
+    return rechargeRecords(name, kind).reduce((n, r) => n + (Number(r.amount) || 0), 0);
   }
-  function rechargeModal(name) {
-    if (!customerByName(name)) { toast('先选择客户。', 'warning'); return; }
-    openModal(`充值 · ${name}`, `<form id="recharge-form"><div class="form-grid">${field('充值金额', 'amount', '', { type: 'number', required: true, hint: '本次实际到账金额' })}${field('充值日期', 'date', stamp(), { type: 'date', required: true, hint: '默认今天，可改' })}${field('备注', 'note', '', { textarea: true, full: true })}</div><p class="form-error" id="recharge-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="save-recharge">保存充值</button>`);
+  function partyExists(kind, name) {
+    return kind === 'supplier'
+      ? state.suppliers.some(s => norm(s.name) === norm(name))
+      : !!customerByName(name);
+  }
+  function rechargeModal(name, kind = 'customer') {
+    if (!partyExists(kind, name)) { toast(`先选择${rechargeLabel(kind)}。`, 'warning'); return; }
+    const hint = kind === 'supplier' ? '本次实际付给该供应商的金额' : '本次实际到账金额';
+    openModal(`充值 · ${name}`, `<form id="recharge-form"><div class="form-grid">${field('充值金额', 'amount', '', { type: 'number', required: true, hint })}${field('充值日期', 'date', stamp(), { type: 'date', required: true, hint: '默认今天，可改' })}${field('备注', 'note', '', { textarea: true, full: true })}</div><p class="form-error" id="recharge-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="save-recharge">保存充值</button>`);
     $('#save-recharge').onclick = async () => {
       const form = new FormData($('#recharge-form'));
       const amount = Number(form.get('amount'));
       const date = String(form.get('date') || '').trim();
       if (!Number.isFinite(amount) || amount <= 0) { $('#recharge-error').textContent = '请输入大于 0 的充值金额。'; return; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $('#recharge-error').textContent = '请选择充值日期。'; return; }
-      state.recharges.push({ id: uid(), customer: name, amount: Math.round(amount * 100) / 100, date, note: String(form.get('note') || '').trim(), createdAt: new Date().toISOString() });
+      state.recharges.push({ id: uid(), kind, name, customer: kind === 'customer' ? name : '', amount: Math.round(amount * 100) / 100, date, note: String(form.get('note') || '').trim(), createdAt: new Date().toISOString() });
       await save(); closeModal(); render();
-      toast(`已记录「${name}」充值 ¥${reconMoney(amount)}，总充值 ¥${reconMoney(reconDeposit(name))}。`);
+      toast(`已记录「${name}」充值 ¥${reconMoney(amount)}，总充值 ¥${reconMoney(reconDeposit(name, kind))}。`);
     };
   }
-  function rechargeListModal(name) {
-    const list = rechargeRecords(name);
+  function rechargeListModal(name, kind = 'customer') {
+    const list = rechargeRecords(name, kind);
     const total = list.reduce((n, r) => n + (Number(r.amount) || 0), 0);
     openModal(`充值记录 · ${name}`, `<p class="muted">共 ${list.length} 笔，累计 ¥${reconMoney(total)}。</p>${list.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>日期</th><th>金额</th><th>备注</th><th>操作</th></tr></thead><tbody>${list.map(r => `<tr><td>${esc(r.date)}</td><td class="numeric">¥${reconMoney(r.amount)}</td><td>${esc(r.note || '—')}</td><td><button class="text-link danger" data-del-recharge="${esc(r.id)}">删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><h3>还没有充值记录</h3><p>点下方「新增充值」记录第一笔。</p></div>'}`, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="add-recharge">新增充值</button>`, true);
-    $('#add-recharge').onclick = () => { closeModal(); rechargeModal(name); };
+    $('#add-recharge').onclick = () => { closeModal(); rechargeModal(name, kind); };
     $$('[data-del-recharge]').forEach(b => b.onclick = () => {
       const rec = state.recharges.find(r => r.id === b.dataset.delRecharge);
       confirmDialog('删除充值记录', `确认删除 ${rec.date} 的 ¥${reconMoney(rec.amount)} 充值记录？`, async () => {
         state.recharges = state.recharges.filter(r => r.id !== rec.id);
-        await save(); render(); rechargeListModal(name); toast('充值记录已删除。');
+        await save(); render(); rechargeListModal(name, kind); toast('充值记录已删除。');
       });
     });
   }
-  function reconAccount(name) {
-    const ownAll = state.orders.filter(o => !o.excluded && (String(o.customer || '').trim() || '未命名客户') === name);
-    let total = 0, noPrice = 0;
-    for (const o of ownAll) {
-      const line = reconLine(o, 'customer');
+  function reconAccount(name, kind = 'customer') {
+    let total = 0, noPrice = 0, count = 0;
+    for (const o of state.orders) {
+      if (o.excluded) continue;
+      const line = reconLine(o, kind === 'supplier' ? 'supplier' : 'customer');
+      const owner = kind === 'supplier' ? line.supplierKey : line.customer;
+      if (owner !== name) continue;
+      count++;
       if (line.amount == null) noPrice++;
       else total += line.amount;
     }
-    const deposit = reconDeposit(name);
-    return { deposit, total: Math.round(total * 100) / 100, balance: Math.round((deposit - total) * 100) / 100, noPrice, count: ownAll.length };
+    const deposit = reconDeposit(name, kind);
+    return { deposit, total: Math.round(total * 100) / 100, balance: Math.round((deposit - total) * 100) / 100, noPrice, count };
   }
   function reconGroups(rows, mode) {
     const map = new Map();
@@ -356,7 +369,8 @@
       else item.amount += line.amount;
     }
     const list = [...map.values()].sort((a, b) => b.count - a.count);
-    if (mode === 'customer') for (const g of list) { const acc = reconAccount(g.name); g.deposit = acc.deposit; g.balance = acc.balance; g.total = acc.total; }
+    const kind = mode === 'supplier' ? 'supplier' : 'customer';
+    for (const g of list) { const acc = reconAccount(g.name, kind); g.deposit = acc.deposit; g.balance = acc.balance; g.total = acc.total; }
     return list;
   }
   const reconMoney = v => v == null ? '' : (Math.round(v * 100) / 100).toFixed(2);
@@ -373,22 +387,23 @@
     const noPrice = lines.filter(l => l.amount == null).length;
     const isSup = mode === 'supplier';
     const groupLabel = isSup ? '供应商' : '客户';
-    const account = isSup ? null : (pick ? reconAccount(pick) : {
+    const accKind = isSup ? 'supplier' : 'customer';
+    const account = pick ? reconAccount(pick, accKind) : {
       deposit: groups.reduce((n, g) => n + (g.deposit || 0), 0),
       total: groups.reduce((n, g) => n + (g.total || 0), 0),
       balance: groups.reduce((n, g) => n + (g.balance || 0), 0),
       noPrice: groups.reduce((n, g) => n + (g.noPrice || 0), 0)
-    });
+    };
     return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额；填了充值金额还能看账户余额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `<button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}</div></div>
       ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
       <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
-      ${!isSup ? `<section class="card recon-account"><div class="recon-account-row">
-        <div class="recon-field"><span>${pick ? esc(pick) + ' 总充值金额' : '全部客户充值合计'}</span><strong>¥${reconMoney(account.deposit)}</strong></div>
-        ${pick ? `<div class="recon-actions"><button class="btn secondary small" id="recon-recharge">${icon('plus')} 充值</button><button class="btn ghost small" id="recon-recharge-list">充值记录</button></div>` : '<div class="recon-hint">在左侧选一个客户后可充值、查看充值记录</div>'}
-        <div class="recon-field"><span>全部订单应收</span><strong>¥${reconMoney(account.total)}</strong></div>
+      <section class="card recon-account"><div class="recon-account-row">
+        <div class="recon-field"><span>${pick ? esc(pick) + ' 总充值金额' : `全部${groupLabel}充值合计`}</span><strong>¥${reconMoney(account.deposit)}</strong></div>
+        ${pick ? `<div class="recon-actions"><button class="btn secondary small" id="recon-recharge">${icon('plus')} 充值</button><button class="btn ghost small" id="recon-recharge-list">充值记录</button></div>` : `<div class="recon-hint">在左侧选一个${groupLabel}后可充值、查看充值记录</div>`}
+        <div class="recon-field"><span>全部订单${isSup ? '应付' : '应收'}</span><strong>¥${reconMoney(account.total)}</strong></div>
         <div class="recon-field"><span>账户余额</span><strong class="${account.balance < 0 ? 'neg' : 'pos'}">¥${reconMoney(account.balance)}</strong></div>
-        ${account.noPrice ? `<div class="recon-hint">${account.noPrice} 条明细缺单价，未计入应收</div>` : ''}
-      </div></section>` : ''}
+        ${account.noPrice ? `<div class="recon-hint">${account.noPrice} 条明细缺${isSup ? '供价' : '单价'}，未计入${isSup ? '应付' : '应收'}</div>` : ''}
+      </div></section>
       <div class="export-layout"><aside class="card export-list"><div class="card-header"><h2>${groupLabel} <span class="count">${groups.length}</span></h2></div>
         <button class="export-group ${pick === '' ? 'active' : ''}" data-recon-group=""><span class="supplier-avatar">全</span><span><strong>全部${groupLabel}</strong><small>${rows.length} 条明细</small></span>${icon('arrow')}</button>
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
@@ -426,8 +441,9 @@
     $$('[data-recon-group]').forEach(b => b.onclick = () => { reconGroup = b.dataset.reconGroup; render(); });
     $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
-    $('#recon-recharge')?.addEventListener('click', () => rechargeModal(reconGroup));
-    $('#recon-recharge-list')?.addEventListener('click', () => rechargeListModal(reconGroup));
+    const rk = () => reconMode === 'supplier' ? 'supplier' : 'customer';
+    $('#recon-recharge')?.addEventListener('click', () => rechargeModal(reconGroup, rk()));
+    $('#recon-recharge-list')?.addEventListener('click', () => rechargeListModal(reconGroup, rk()));
   }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';
@@ -569,7 +585,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   }
   function supplierModal(id){const s=copy(sById(id)||{id:uid(),name:'',contact:'',phone:'',note:'',template:null});openModal(id?'编辑供应商':'新增供应商',`<form id="supplier-form"><div class="form-grid">${field('供应商名称','name',s.name,{required:true,full:true})}${field('联系人','contact',s.contact)}${field('联系电话','phone',s.phone)}${field('备注 / 供应商主体信息','note',s.note,{textarea:true,full:true})}</div><p id="supplier-error" class="form-error"></p></form>`,`<button class="btn secondary" data-cancel>取消</button>${id?'<button class="btn danger" id="delete-supplier">删除供应商</button>':''}<button class="btn" id="save-supplier">保存供应商</button>`);
     $('#save-supplier').onclick=async()=>{const f=new FormData($('#supplier-form'));for(const[k,v]of f)s[k]=v.trim();if(!s.name){$('#supplier-error').textContent='请输入供应商名称。';return;}if(state.suppliers.some(x=>x.id!==s.id&&norm(x.name)===norm(s.name))){$('#supplier-error').textContent='供应商名称已存在。';return;}const idx=state.suppliers.findIndex(x=>x.id===s.id);idx<0?state.suppliers.push(s):state.suppliers.splice(idx,1,s);invalidate();await save();closeModal();render();toast('供应商已保存。');};
-    $('#delete-supplier')?.addEventListener('click',()=>{const owned=state.products.filter(p=>p.supplierId===s.id),ids=new Set(owned.map(p=>p.id));confirmDialog('删除供应商',owned.length?`“${s.name}”下有 ${owned.length} 个商品，会一并删除；已引用这些商品的订单明细需要重新映射。`:`确认删除“${s.name}”？`,async()=>{state.suppliers=state.suppliers.filter(x=>x.id!==s.id);state.products=state.products.filter(p=>p.supplierId!==s.id);state.orders.forEach(r=>{if(ids.has(r.productId)){r.productId='';r.manual=false;}});if(supplierFilter===s.id)supplierFilter='all';if(selectedExport===s.id)selectedExport='';invalidate();await save();render();toast(owned.length?`已删除供应商及其 ${owned.length} 个商品。`:'已删除供应商。');});});
+    $('#delete-supplier')?.addEventListener('click',()=>{const owned=state.products.filter(p=>p.supplierId===s.id),ids=new Set(owned.map(p=>p.id));confirmDialog('删除供应商',owned.length?`“${s.name}”下有 ${owned.length} 个商品，会一并删除；已引用这些商品的订单明细需要重新映射。`:`确认删除“${s.name}”？`,async()=>{state.suppliers=state.suppliers.filter(x=>x.id!==s.id);state.products=state.products.filter(p=>p.supplierId!==s.id);state.recharges=state.recharges.filter(r=>(r.kind||'customer')!=='supplier'||norm(r.name||r.customer||'')!==norm(s.name));state.orders.forEach(r=>{if(ids.has(r.productId)){r.productId='';r.manual=false;}});if(supplierFilter===s.id)supplierFilter='all';if(selectedExport===s.id)selectedExport='';invalidate();await save();render();toast(owned.length?`已删除供应商及其 ${owned.length} 个商品。`:'已删除供应商。');});});
   }
   function productModal(id){if(!state.suppliers.length){toast('请先新增供应商。','warning');return;}const p=copy(pById(id)||{id:uid(),internalSku:nextProductSku(),name:'',spec:'',unit:'盒',supplierId:supplierFilter==='all'?state.suppliers[0].id:supplierFilter,supplierSku:'',barcode:'',brand:'',category:'',cost:'',groupPrice:'',broadcastPrice:'',suggestPrice:'',marginOwn:'',marginBroadcast:'',jdPrice:'',link:'',aliases:[],note:''});openModal(id?'编辑标准商品':'新增标准商品',`<form id="product-form"><div class="form-grid">${field('标准商品名称','name',p.name,{required:true,full:true})}${field('内部商品编码','internalSku',p.internalSku,{hint:'留空自动生成，例如 OF-012'})}${field('标准包装规格','spec',p.spec)}${field('计量单位','unit',p.unit)}${selectField('供应商','supplierId',state.suppliers.map(s=>[s.id,s.name]),p.supplierId)}${field('供应商商品编码','supplierSku',p.supplierSku,{hint:'留空则与内部编码相同'})}${field('69码 / 条码','barcode',p.barcode||'')}${field('品牌','brand',p.brand||'')}${field('商品品类','category',p.category||'')}${field('集采价','groupPrice',p.groupPrice||'',{type:'number'})}${field('供价（含税运）','cost',p.cost||'',{type:'number'})}${field('广电供价','broadcastPrice',p.broadcastPrice||'',{type:'number'})}${field('建议售价','suggestPrice',p.suggestPrice||'',{type:'number'})}${field('定宣毛利（0.2 = 20%）','marginOwn',p.marginOwn||'',{type:'number'})}${field('广电毛利（0.2 = 20%）','marginBroadcast',p.marginBroadcast||'',{type:'number'})}${field('京东价','jdPrice',p.jdPrice||'',{type:'number'})}${field('商品链接','link',p.link||'',{full:true})}${field('新增通用商品别名（每行一个）','newAliases','',{textarea:true,full:true,hint:'精确匹配；不同包装规格请分别建商品。客户专属映射在订单处理时确认。'})}</div><h3 class="section-label">已保存的客户别名</h3><div id="alias-list">${p.aliases.map((a,i)=>`<div class="alias-item"><span><strong>${esc(a.customer||'通用')}</strong> ${esc(a.name||a.code)}<small>${esc(a.spec||'')}</small></span><button type="button" class="text-link" data-remove-alias="${i}">移除</button></div>`).join('')||'<p class="muted">尚无客户别名</p>'}</div><p class="form-error" id="product-error"></p></form>`,`<button class="btn secondary" data-cancel>取消</button>${id?'<button class="btn danger" id="delete-product">删除商品</button>':''}<button class="btn" id="save-product">保存商品</button>`,true);
     $$('[data-remove-alias]').forEach(b=>b.onclick=()=>{p.aliases[Number(b.dataset.removeAlias)]=null;b.closest('.alias-item').remove();});
