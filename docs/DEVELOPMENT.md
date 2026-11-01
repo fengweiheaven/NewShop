@@ -22,7 +22,7 @@
 | 订单采集与匹配 | `import` | 多文件导入、工作表与表头选择、字段对应、商品匹配、异常处理、重复与修订处理、本次批次选择、单条删除与一键清空 |
 | 供应商格式 | `export` | 每家供应商一套格式（列名、取值来源、默认值、必填），按匹配到的供应商分组、单家 XLSX 与多家 ZIP 导出 |
 | 运单回填 | `shipment` | 上传带快递单号的回单表，按收货人/电话匹配本次批次订单，把订单号写回原表并下载 |
-| 对账 | `recon` | 按客户汇总订单明细与金额，可切换全部/本次批次并导出对账单 |
+| 对账 | `recon` | 客户对账（按售价算应收）与供应商对账（按供价算应付），可切换全部/本次批次并导出对账单 |
 
 ```mermaid
 flowchart TD
@@ -433,14 +433,19 @@ python -m http.server 8765 --directory dist
 
 ## 10. 模块六：对账
 
-入口 `renderRecon()`，页面标识 `recon`。
+入口 `renderRecon()`，页面标识 `recon`，同一页面用 `reconMode` 切换两种口径：
+
+| 口径 | 分组 | 价格来源 | 合计含义 | 导出文件 |
+| --- | --- | --- | --- | --- |
+| 客户对账（默认） | 订单客户 | 订单 `unitPrice`（源表成交价/单价） | 应收合计 | `客户_客户对账_日期.xlsx` |
+| 供应商对账 | 商品所属供应商 | 商品档案 `cost`（供价/进货价） | 应付合计 | `供应商_供应商对账_日期.xlsx` |
 
 - 数据来源：`reconBase()` 取全部订单（`reconScope='all'`）或本次勾选批次（`'active'`），并剔除 `excluded` 明细。
-- 按客户分组：左侧列出每个客户的明细数与金额合计；选中某个客户后表格只显示该客户，并隐藏「客户」列。
-- 每行由 `reconLine()` 生成：订单号、下单时间、商品（优先标准商品名与规格）、数量、单价、金额、供应商、收货人。
-- 价格口径：单价取订单的 `unitPrice`（来源表里的成交价/单价），金额 = 单价 × 数量（两位小数）；没有单价的明细不计入合计，页面用提示条给出条数。
-- 顶部四张卡：客户数、订单明细数、商品件数、金额合计。
-- 「导出对账单」由 `exportRecon()` 生成 XLSX，14 列：订单号、下单时间、客户、商品、规格、数量、单价、金额、供应商、供应商编码、收货人、电话、地址、状态；选中客户时只导该客户。
+- 未匹配商品的明细在供应商口径下归入「未分配供应商」，不会静默消失。
+- 左栏按当前口径列出分组（客户或供应商）及各自的明细数、金额；选中某个分组后表格只显示该组，并隐藏分组列。
+- 每行由 `reconLine(order, mode)` 生成：订单号、下单时间、分组名、商品（标准商品名与规格）、数量、单价或供价、金额、供应商编码、对手方（客户或供应商）、收货人。
+- 金额 = 价格 × 数量，保留两位小数；价格缺失时金额留空且不计入合计，页面提示缺价条数（客户口径看源表单价，供应商口径看商品档案供价）。
+- 导出由 `exportRecon()` 按当前口径生成 14 列：客户对账为「订单号/时间/客户/商品/规格/数量/单价/金额/供应商/编码/收货人/电话/地址/状态」；供应商对账把「客户」与「供应商」对调并改「单价」为「供价」。
 - 对账是只读视图，不改动任何订单数据。
 
 ## 11. Excel 引擎接口与规则
@@ -520,7 +525,7 @@ python -m http.server 8765 --directory dist
 | 重复与批次 | `app.js`: `duplicateKey`, `resolveDuplicateChoice`, `activeRows`, `manageBatches`, `deleteOrders` |
 | 运单回填 | `app.js`: `openShipment`, `shipmentMatch`, `shipmentOrders`, `renderShipment`, `exportShipment` |
 | 客户库 | `app.js`: `renderCustomers`, `customerModal`, `ensureCustomer`, `customerOrderCount`, `bindCustomers` |
-| 对账 | `app.js`: `renderRecon`, `reconBase`, `reconLine`, `reconCustomers`, `exportRecon` |
+| 对账 | `app.js`: `renderRecon`, `reconBase`, `reconLine`, `reconGroups`, `exportRecon` |
 | 供应商格式导出 | `app.js`: `exportRow`, `exportGroups`, `pendingExportCount`, `exportIssues`, `exportBytes` |
 | 模板与导出 | `app.js`: `templateModal`, `templateValue`, `exportIssues`, `exportBytes`, `exportOne`, `exportAll` |
 | 导出状态 | `app.js`: `markExported`, `refreshBatchExportFlags`, `includeNewBatch` |
@@ -558,7 +563,7 @@ python -m http.server 8765 --directory dist
 | 未设置格式的供应商 | 顶部横幅点名「成都定宣商贸有限公司」，该组导出按钮保持禁用；点「设置格式」可直接打开该供应商的格式配置 |
 | 运单回填（追加模式） | 2 行快递单号表按「电话+收货人」全部命中，下载文件含 JY 订单号并保留原表头，行数为表头 + 2 |
 | 客户库 | 手动新增客户显示 0 单；导入订单后按文件名客户名自动登记、订单数 2；删除该客户时确认框提示「还有 2 条订单记录」，删除后客户消失而订单客户名保留 |
-| 对账 | 2 条订单（单价 45.5×2、29.9×3）合计 ¥180.70、5 件；按客户分组 1 家；切换到「仅本次批次」文案与数字一致；导出 14 列、3 行（表头 + 2） |
+| 对账（客户/供应商） | 客户口径：单价 45.5×2 + 29.9×3 = 应收 ¥180.70；供应商口径：供价 20×2 = 应付 ¥40.00，另 1 条缺供价被排除并提示；两种口径导出均为 14 列、3 行 |
 | 运单回填（覆盖/未匹配） | 原表已有订单号列时默认覆盖该列且不重复追加（表头计数 1）；陌生收件人保持未匹配，下载后该格为空 |
 | 供应商切换 | 点击「成都定宣商贸有限公司」得 50 条（2 页），标题计数与卡片选中态一致 |
 | 两条入口一致性 | `dist/` 静态站点与重建后的 `standalone/OrderFlow.html` 跑同一套导入用例，结果一致，控制台无报错 |
