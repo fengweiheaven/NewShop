@@ -9,7 +9,7 @@
 | 适用读者 | 接手开发、联调、测试与维护人员 |
 | 仓库 | [fengweiheaven/NewShop](https://github.com/fengweiheaven/NewShop) |
 
-本文依据当前仓库中的实际代码编写，描述已完成的五个页面（商品映射库、客户库、订单采集与匹配、供应商格式、运单回填）、实现规则和现有限制。原始需求中提到的微信群机器人、供应商后台自动提交、物流回单和财务对账尚未接入本版。
+本文依据当前仓库中的实际代码编写，描述已完成的五个页面（供应商库、客户库、订单采集与匹配、供应商格式、运单回填）、实现规则和现有限制。原始需求中提到的微信群机器人、供应商后台自动提交、物流回单和财务对账尚未接入本版。
 
 ## 1. 功能范围与业务流程
 
@@ -17,7 +17,7 @@
 
 | 模块 | 页面标识 | 当前已实现 |
 | --- | --- | --- |
-| 商品映射库 | `suppliers` | 供应商维护、报价单导入、标准商品维护、客户名称别名、商品目录导入、样表候选映射确认 |
+| 供应商库 | `suppliers` | 供应商维护、报价单导入、标准商品维护、客户名称别名、商品目录导入、样表候选映射确认 |
 | 客户库 | `customers` | 维护给我们下订单的客户、联系人与订单数；导入订单时按客户名自动登记 |
 | 订单采集与匹配 | `import` | 多文件导入、工作表与表头选择、字段对应、商品匹配、异常处理、重复与修订处理、本次批次选择、单条删除与一键清空 |
 | 供应商格式 | `export` | 每家供应商一套格式（列名、取值来源、默认值、必填），按匹配到的供应商分组、单家 XLSX 与多家 ZIP 导出 |
@@ -163,7 +163,7 @@ python -m http.server 8765 --directory dist
 
 模板保存的是列定义与取值规则，不保存上传工作簿的完整二进制内容。
 
-## 4. 模块一：商品映射库
+## 4. 模块一：供应商库
 
 ### 4.1 供应商维护
 
@@ -190,7 +190,7 @@ python -m http.server 8765 --directory dist
 
 ### 4.3 供应商报价单导入
 
-入口函数为 `quoteImport()`，导入按钮位于「商品映射库」右上角。目标是把供应商发来的报价单（一张表里同时含商品、条码、供价和供应商）一次性变成商品映射库数据，而不是逐条手工录入。
+入口函数为 `quoteImport()`，导入按钮位于「供应商库」右上角。目标是把供应商发来的报价单（一张表里同时含商品、条码、供价和供应商）一次性变成供应商库数据，而不是逐条手工录入。
 
 导入分为「识别 → 核对 → 写入」三步：
 
@@ -359,7 +359,7 @@ python -m http.server 8765 --directory dist
 | 删除明细 | 订单核对弹窗底部 | 当前这条明细 |
 | 清空订单 | 订单明细卡片右上角，仅在存在订单时出现 | 全部明细与全部批次 |
 
-清理内容：移除订单行；被删除行若是其他行的 `duplicateOf` 目标，同时清除该指向；订单清空后对应的空批次一并移除；`activeBatchIds` 同步收窄；最后写入 IndexedDB 并重绘。删除不支持撤销，界面用 `confirmDialog()` 做二次确认。商品映射库与供应商资料不受影响。
+清理内容：移除订单行；被删除行若是其他行的 `duplicateOf` 目标，同时清除该指向；订单清空后对应的空批次一并移除；`activeBatchIds` 同步收窄；最后写入 IndexedDB 并重绘。删除不支持撤销，界面用 `confirmDialog()` 做二次确认。供应商库与供应商资料不受影响。
 
 ## 7. 模块四：供应商格式与导出
 
@@ -516,7 +516,7 @@ python -m http.server 8765 --directory dist
 | 字段识别、订单入库 | `app.js`: `queueFiles`, `autoMap`, `showImportModal` |
 | 商品匹配、检查 | `app.js`: `norm`, `findProducts`, `suggestion`, `status` |
 | 报价单导入 | `app.js`: `quoteImport`, `quoteAutoMap`, `matchColumn`, `quoteRecords`, `quoteGroups`, `quoteSummary`, `applyQuote` |
-| 商品映射库视图 | `app.js`: `renderLibrary`, `supplierRail`, `supplierMetrics`, `productsTable`, `bindProductActions` |
+| 供应商库视图 | `app.js`: `renderLibrary`, `supplierRail`, `supplierMetrics`, `productsTable`, `bindProductActions` |
 | 重复与批次 | `app.js`: `duplicateKey`, `resolveDuplicateChoice`, `activeRows`, `manageBatches`, `deleteOrders` |
 | 运单回填 | `app.js`: `openShipment`, `shipmentMatch`, `shipmentOrders`, `renderShipment`, `exportShipment` |
 | 客户库 | `app.js`: `renderCustomers`, `customerModal`, `ensureCustomer`, `customerOrderCount`, `bindCustomers` |
@@ -585,7 +585,7 @@ python -m http.server 8765 --directory dist
 | 报价单供应商列部分为空 | 默认跳过这些行并在弹窗提示数量；改为「归入未标注供应商」后才落库 |
 | 同一报价单连续导入两次 | 第二次只更新价格，不新增商品 |
 | 删除单条订单明细 | 行内「删除」或弹窗「删除明细」，确认后明细与空批次消失 |
-| 清空订单 | 右上角「清空订单」确认后明细、批次、统计归零，商品映射库保留 |
+| 清空订单 | 右上角「清空订单」确认后明细、批次、统计归零，供应商库保留 |
 | 新增客户后导入订单 | 客户名自动匹配到客户库，不会重复建档 |
 | 打开对账 | 能按客户看到商品、数量、单价、金额与合计，可导出 XLSX |
 | 上传快递单号表 | 按收货信息回填订单号并可下载；未匹配行留空并提示 |
