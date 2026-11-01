@@ -59,7 +59,7 @@
   const EXPORT_FIELDS = [['orderNo','订单号'],['buyerNickname','买家昵称'],['recipient','收货人'],['address','详细地址'],['phone','收货电话'],['supplierSku','供应商商品编码'],['quantity','数量'],['productName','统一商品名称'],['sourceProductName','来源商品名称'],['internalSku','内部编码'],['spec','标准规格'],['customer','客户'],['remark','备注'],['date','下单时间'],['province','省'],['city','市'],['district','区'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['constant','固定值'],['blank','留空']];
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
   let state, db, view='import', filter='all', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
-  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],profiles:{},unified:null,history:[]});
+  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],recharges:[],profiles:{},unified:null,history:[]});
   const pById = id => state.products.find(p=>p.id===id);
   const sById = id => state.suppliers.find(s=>s.id===id);
   const invalidate = () => { state.unified=null; };
@@ -73,6 +73,7 @@
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
+    if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
@@ -114,6 +115,7 @@
   }
   function validateBackup(v){
     if(!Array.isArray(v.customers))v.customers=[];
+    if(!Array.isArray(v.recharges))v.recharges=[];
     if(v.version!==1||!Array.isArray(v.suppliers)||!Array.isArray(v.products)||!Array.isArray(v.orders)||!Array.isArray(v.batches)||!v.profiles||typeof v.profiles!=='object')throw Error('这不是有效的序单数据备份。');
     if(v.orders.length>30000||v.products.length>30000)throw Error('备份记录过多（最多30,000行）。');
     const ids=a=>a.every(x=>x&&typeof x.id==='string')&&new Set(a.map(x=>x.id)).size===a.length;
@@ -211,7 +213,7 @@
     if (!n) return null;
     let c = customerByName(n);
     if (!c) {
-      c = { id: uid(), name: n, contact: '', phone: '', note: '', createdAt: new Date().toISOString() };
+      c = { id: uid(), name: n, contact: '', phone: '', note: '', deposit: '', createdAt: new Date().toISOString() };
       state.customers.push(c);
     }
     return c;
@@ -223,10 +225,10 @@
   function customerModal(id) {
     const editing = !!id;
     const c = copy(state.customers.find(x => x.id === id) || { id: uid(), name: '', contact: '', phone: '', note: '', deposit: '' });
-    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${field('充值金额', 'deposit', c.deposit || '', { type: 'number', hint: '仅用于对账页的账户余额，可留空' })}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
+    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${editing ? `<div class="field full"><span>总充值金额</span><div class="read-count">¥${reconMoney(reconDeposit(c.name))} · 在对账页充值与查看记录</div></div>` : ''}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
     $('#save-customer').onclick = async () => {
       const f = new FormData($('#customer-form'));
-      ['name', 'contact', 'phone', 'note', 'deposit'].forEach(k => c[k] = String(f.get(k) || '').trim());
+      ['name', 'contact', 'phone', 'note'].forEach(k => c[k] = String(f.get(k) || '').trim());
       if (!c.name) { $('#customer-error').textContent = '请填写客户名称。'; return; }
       if (state.customers.some(x => x.id !== c.id && norm(x.name) === norm(c.name))) { $('#customer-error').textContent = '客户名称已存在。'; return; }
       const idx = state.customers.findIndex(x => x.id === c.id);
@@ -237,6 +239,7 @@
       const used = customerOrderCount(c.name);
       confirmDialog('删除客户', used ? `「${c.name}」还有 ${used} 条订单记录，删除客户不会删除订单，订单上的客户名称会保留。` : `确认删除「${c.name}」？`, async () => {
         state.customers = state.customers.filter(x => x.id !== c.id);
+        state.recharges = state.recharges.filter(r => norm(r.customer) !== norm(c.name));
         await save(); render(); toast('客户已删除。');
       });
     });
@@ -294,11 +297,41 @@
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
     };
   }
+  function rechargeRecords(name) {
+    const key = norm(name);
+    return state.recharges
+      .filter(r => norm(r.customer) === key)
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+  }
   function reconDeposit(name) {
-    const c = customerByName(name);
-    if (!c || c.deposit === '' || c.deposit == null) return 0;
-    const n = Number(c.deposit);
-    return Number.isFinite(n) ? n : 0;
+    return rechargeRecords(name).reduce((n, r) => n + (Number(r.amount) || 0), 0);
+  }
+  function rechargeModal(name) {
+    if (!customerByName(name)) { toast('先选择客户。', 'warning'); return; }
+    openModal(`充值 · ${name}`, `<form id="recharge-form"><div class="form-grid">${field('充值金额', 'amount', '', { type: 'number', required: true, hint: '本次实际到账金额' })}${field('充值日期', 'date', stamp(), { type: 'date', required: true, hint: '默认今天，可改' })}${field('备注', 'note', '', { textarea: true, full: true })}</div><p class="form-error" id="recharge-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="save-recharge">保存充值</button>`);
+    $('#save-recharge').onclick = async () => {
+      const form = new FormData($('#recharge-form'));
+      const amount = Number(form.get('amount'));
+      const date = String(form.get('date') || '').trim();
+      if (!Number.isFinite(amount) || amount <= 0) { $('#recharge-error').textContent = '请输入大于 0 的充值金额。'; return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $('#recharge-error').textContent = '请选择充值日期。'; return; }
+      state.recharges.push({ id: uid(), customer: name, amount: Math.round(amount * 100) / 100, date, note: String(form.get('note') || '').trim(), createdAt: new Date().toISOString() });
+      await save(); closeModal(); render();
+      toast(`已记录「${name}」充值 ¥${reconMoney(amount)}，总充值 ¥${reconMoney(reconDeposit(name))}。`);
+    };
+  }
+  function rechargeListModal(name) {
+    const list = rechargeRecords(name);
+    const total = list.reduce((n, r) => n + (Number(r.amount) || 0), 0);
+    openModal(`充值记录 · ${name}`, `<p class="muted">共 ${list.length} 笔，累计 ¥${reconMoney(total)}。</p>${list.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>日期</th><th>金额</th><th>备注</th><th>操作</th></tr></thead><tbody>${list.map(r => `<tr><td>${esc(r.date)}</td><td class="numeric">¥${reconMoney(r.amount)}</td><td>${esc(r.note || '—')}</td><td><button class="text-link danger" data-del-recharge="${esc(r.id)}">删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><h3>还没有充值记录</h3><p>点下方「新增充值」记录第一笔。</p></div>'}`, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="add-recharge">新增充值</button>`, true);
+    $('#add-recharge').onclick = () => { closeModal(); rechargeModal(name); };
+    $$('[data-del-recharge]').forEach(b => b.onclick = () => {
+      const rec = state.recharges.find(r => r.id === b.dataset.delRecharge);
+      confirmDialog('删除充值记录', `确认删除 ${rec.date} 的 ¥${reconMoney(rec.amount)} 充值记录？`, async () => {
+        state.recharges = state.recharges.filter(r => r.id !== rec.id);
+        await save(); render(); rechargeListModal(name); toast('充值记录已删除。');
+      });
+    });
   }
   function reconAccount(name) {
     const ownAll = state.orders.filter(o => !o.excluded && (String(o.customer || '').trim() || '未命名客户') === name);
@@ -350,7 +383,8 @@
       ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
       <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
       ${!isSup ? `<section class="card recon-account"><div class="recon-account-row">
-        <label class="recon-field"><span>${pick ? esc(pick) + ' 充值金额' : '全部客户充值合计'}</span>${pick ? `<input id="recon-deposit" type="number" step="0.01" min="0" value="${account.deposit || ''}" placeholder="0.00">` : `<strong>¥${reconMoney(account.deposit)}</strong>`}</label>
+        <div class="recon-field"><span>${pick ? esc(pick) + ' 总充值金额' : '全部客户充值合计'}</span><strong>¥${reconMoney(account.deposit)}</strong></div>
+        ${pick ? `<div class="recon-actions"><button class="btn secondary small" id="recon-recharge">${icon('plus')} 充值</button><button class="btn ghost small" id="recon-recharge-list">充值记录</button></div>` : '<div class="recon-hint">在左侧选一个客户后可充值、查看充值记录</div>'}
         <div class="recon-field"><span>全部订单应收</span><strong>¥${reconMoney(account.total)}</strong></div>
         <div class="recon-field"><span>账户余额</span><strong class="${account.balance < 0 ? 'neg' : 'pos'}">¥${reconMoney(account.balance)}</strong></div>
         ${account.noPrice ? `<div class="recon-hint">${account.noPrice} 条明细缺单价，未计入应收</div>` : ''}
@@ -392,15 +426,8 @@
     $$('[data-recon-group]').forEach(b => b.onclick = () => { reconGroup = b.dataset.reconGroup; render(); });
     $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
-    $('#recon-deposit')?.addEventListener('change', async e => {
-      if (!reconGroup) return;
-      const c = customerByName(reconGroup);
-      if (!c) { toast('客户不存在，先到客户库登记。', 'warning'); return; }
-      const n = Number(e.target.value);
-      c.deposit = e.target.value.trim() === '' ? '' : String(Number.isFinite(n) ? n : 0);
-      await save(); render();
-      toast(`已保存「${reconGroup}」充值金额 ¥${reconMoney(reconDeposit(reconGroup))}。`);
-    });
+    $('#recon-recharge')?.addEventListener('click', () => rechargeModal(reconGroup));
+    $('#recon-recharge-list')?.addEventListener('click', () => rechargeListModal(reconGroup));
   }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';

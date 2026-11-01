@@ -125,7 +125,8 @@ python -m http.server 8765 --directory dist
 | --- | --- | --- |
 | Supplier | `id, name, contact, phone, note, template, derived` | 每个供应商保存一份当前模板配置；`derived` 表示该供应商来自报价单「按品牌推断」，需人工核对供货主体 |
 | Product | `id, internalSku, name, spec, unit, supplierId, supplierSku, aliases`，报价单导入后另有 `brand, category, barcode, groupPrice, cost, broadcastPrice, suggestPrice, marginOwn, marginBroadcast, jdPrice, link, sourceFile` | 每个标准商品关联一个供应商与供应商商品编码；`barcode` 为 69 码，`cost` 为供价/进货价，`groupPrice` 为集采价，`broadcastPrice` 为广电供价，两个 `margin*` 是 0–1 的毛利率 |
-| Customer | `id, name, contact, phone, note, deposit, createdAt` | 给订单的客户；`deposit` 是客户充值金额，仅用于对账余额；名称按 `norm()` 查重，订单只按名称关联，不做改名传播 |
+| Customer | `id, name, contact, phone, note, createdAt` | 给订单的客户；名称按 `norm()` 查重，订单只按名称关联，不做改名传播 |
+| Recharge | `id, customer, amount, date, note, createdAt` | 客户充值流水，按客户名关联；总充值 = 该客户全部记录之和 |
 | Alias | `customer, name, spec, code` | 空客户表示通用别名；规格可作为精确约束。`code` 的界面能力见第 6 节 |
 | Batch | `id, name, hash, customer, createdAt, rowCount?, demo?, exportedAt?` | 一次确认导入建立一个批次；通常对应一个文件里选中的一个工作表 |
 | Order | 见下表 | 一条客户订单商品明细，保留原始来源 |
@@ -239,7 +240,7 @@ python -m http.server 8765 --directory dist
 
 入口 `renderCustomers()`，页面标识 `customers`，新增/编辑弹窗为 `customerModal()`。
 
-- 数据模型：`state.customers[]`，字段 `id, name, contact, phone, note, deposit, createdAt`；名称按 `norm()` 查重。`deposit` 是充值金额，可在客户弹窗里填，也可在对账页直接改。
+- 数据模型：`state.customers[]`，字段 `id, name, contact, phone, note, deposit, createdAt`；名称按 `norm()` 查重。充值金额不在客户表单里维护，改由对账页的充值流水汇总（见第 10 节）。
 - 导入订单时，客户名（`d.customer`）由 `ensureCustomer()` 自动登记；在订单弹窗里改名也会补登记。
 - 旧工作区没有 `customers` 字段时，`migrateScope()` 会用历史订单里的客户名生成初始清单。
 - 列表按订单数降序，显示联系人、电话、备注与该客户的历史订单数（`customerOrderCount()` 统计全部批次，不只看本次范围）。
@@ -445,8 +446,11 @@ python -m http.server 8765 --directory dist
 - 左栏按当前口径列出分组（客户或供应商）及各自的明细数、金额；选中某个分组后表格只显示该组，并隐藏分组列。
 - 每行由 `reconLine(order, mode)` 生成：订单号、下单时间、分组名、商品（标准商品名与规格）、数量、单价或供价、金额、供应商编码、对手方（客户或供应商）、收货人。
 - 金额 = 价格 × 数量，保留两位小数；价格缺失时金额留空且不计入合计，页面提示缺价条数（客户口径看源表单价，供应商口径看商品档案供价）。
-- 客户口径附加账户视图（`reconAccount(name)`）：充值金额 - 该客户全部未排除订单的应收 = 账户余额；负余额显示为红色。
-  - 选中某个客户时可直接在页面上改充值金额，回车/失焦即写入 `customer.deposit` 并重算余额；选「全部客户」时显示充值合计、应收合计与余额合计。
+- 客户口径附加账户视图（`reconAccount(name)`）：总充值金额 - 该客户全部未排除订单的应收 = 账户余额；负余额显示为红色。
+  - 总充值是**充值流水之和**（`state.recharges`），页面上只读展示；旁边的「充值」按钮打开 `rechargeModal()`，填写金额、日期（默认当天、可改）和备注后落一条记录，总金额与余额立即重算。
+  - 「充值记录」按钮打开 `rechargeListModal()`，按日期倒序列出该客户的全部充值，可逐条删除；删除后页面金额同步刷新。
+  - 选「全部客户」时不显示充值按钮（充值必须落到具体客户），只显示充值合计、应收合计与余额合计。
+  - 旧工作区里 `customer.deposit` 的数值会在迁移时转成一条「历史充值」记录，日期取客户创建日期。
   - 余额口径固定用**该客户全部订单**（不受「仅本次批次」影响），页面上会写明这是「全部订单应收」；缺少单价的明细按 0 计入并提示条数。
 - 导出由 `exportRecon()` 按当前口径生成 14 列：客户对账为「订单号/时间/客户/商品/规格/数量/单价/金额/供应商/编码/收货人/电话/地址/状态」；供应商对账把「客户」与「供应商」对调并改「单价」为「供价」。
 - 对账是只读视图，不改动任何订单数据。
@@ -529,6 +533,7 @@ python -m http.server 8765 --directory dist
 | 运单回填 | `app.js`: `openShipment`, `shipmentMatch`, `shipmentOrders`, `renderShipment`, `exportShipment` |
 | 客户库 | `app.js`: `renderCustomers`, `customerModal`, `ensureCustomer`, `customerOrderCount`, `bindCustomers` |
 | 对账 | `app.js`: `renderRecon`, `reconBase`, `reconLine`, `reconGroups`, `reconAccount`, `reconDeposit`, `exportRecon` |
+| 充值流水 | `app.js`: `rechargeModal`, `rechargeListModal`, `rechargeRecords`, `reconDeposit` |
 | 供应商格式导出 | `app.js`: `exportRow`, `exportGroups`, `pendingExportCount`, `exportIssues`, `exportBytes` |
 | 模板与导出 | `app.js`: `templateModal`, `templateValue`, `exportIssues`, `exportBytes`, `exportOne`, `exportAll` |
 | 导出状态 | `app.js`: `markExported`, `refreshBatchExportFlags`, `includeNewBatch` |
@@ -567,7 +572,8 @@ python -m http.server 8765 --directory dist
 | 未设置格式的供应商 | 顶部横幅点名「成都定宣商贸有限公司」，该组导出按钮保持禁用；点「设置格式」可直接打开该供应商的格式配置 |
 | 运单回填（追加模式） | 2 行快递单号表按「电话+收货人」全部命中，下载文件含 JY 订单号并保留原表头，行数为表头 + 2 |
 | 客户库 | 手动新增客户显示 0 单；导入订单后按文件名客户名自动登记、订单数 2；删除该客户时确认框提示「还有 2 条订单记录」，删除后客户消失而订单客户名保留 |
-| 客户充值余额 | 应收账款 ¥180.70，充值为空时余额 −¥180.70；填入 500 后余额 ¥319.30 并写入客户档案；改为 100 时余额 −¥80.70（红色）；客户弹窗能读回该值 |
+| 客户充值余额 | 应收 ¥180.70：无充值余额 −¥180.70；充 500 后 ¥319.30；再充 1200 后 ¥1519.30；记录按日期倒序（11-01、10-15）；删掉 1200 后总充值回到 ¥500、余额 ¥319.30 |
+| 充值迁移 | 旧数据 `customer.deposit=300` → 启动后生成一条「历史充值」¥300，合计 ¥300、余额 ¥200 |
 | 对账（客户/供应商） | 客户口径：单价 45.5×2 + 29.9×3 = 应收 ¥180.70；供应商口径：供价 20×2 = 应付 ¥40.00，另 1 条缺供价被排除并提示；两种口径导出均为 14 列、3 行 |
 | 运单回填（覆盖/未匹配） | 原表已有订单号列时默认覆盖该列且不重复追加（表头计数 1）；陌生收件人保持未匹配，下载后该格为空 |
 | 供应商切换 | 点击「成都定宣商贸有限公司」得 50 条（2 页），标题计数与卡片选中态一致 |
@@ -598,7 +604,7 @@ python -m http.server 8765 --directory dist
 | 清空订单 | 右上角「清空订单」确认后明细、批次、统计归零，供应商库保留 |
 | 新增客户后导入订单 | 客户名自动匹配到客户库，不会重复建档 |
 | 打开对账 | 能按客户看到商品、数量、单价、金额与合计，可导出 XLSX |
-| 给客户充值 | 在对账页填入充值金额后余额立即变化，刷新后仍保留 |
+| 给客户充值 | 点「充值」填金额与日期后总金额与余额立即变化，刷新后仍保留；充值记录可查看与删除 |
 | 上传快递单号表 | 按收货信息回填订单号并可下载；未匹配行留空并提示 |
 
 ## 14. 当前未实现的能力
