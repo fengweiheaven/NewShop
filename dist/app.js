@@ -156,13 +156,13 @@
   }
   const summary=()=>activeRows().reduce((a,r)=>{const s=status(r);a[s.key]=(a[s.key]||0)+1;a.total++;if(s.key!=='excluded')a.quantity+=Number(r.quantity)||0;return a;},{total:0,ready:0,unmatched:0,invalid:0,duplicate:0,excluded:0,quantity:0});
   function badge(s){return `<span class="pill ${s.type}" title="${esc(s.issues?.join('；')||'')}">${s.type==='success'?icon('check'):''}${esc(s.label)}</span>`;}
-  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<2?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
+  function workflow(){return `<div class="workflow">${[['suppliers','商品映射库','建立产品与供应商关系'],['import','订单采集与匹配','识别不同客户格式'],['export','供应商格式','一家供应商一套格式'],['shipment','运单回填','补上平台订单号']].map(([id,t,desc],i)=>`<button class="workflow-step ${view===id?'active':''}" data-go="${id}"><span class="step-number">0${i+1}</span><span><strong>${t}</strong><small>${desc}</small></span>${i<3?icon('arrow','step-arrow'):''}</button>`).join('')}</div>`;}
   function stats(){const s=summary();return `<div class="stats-grid">${[['file','已采集订单',s.total,`本次 ${state.activeBatchIds.length} 个批次 · 历史 ${state.batches.length} 个`,'blue'],['check','匹配完成',s.ready,s.total?`${Math.round(s.ready/s.total*100)}% 的明细已就绪`:'导入订单后自动检查','green'],['clock','待处理',s.unmatched+s.invalid+s.duplicate,'映射与字段异常','amber'],['box','商品映射库',state.products.length,`${state.suppliers.length} 家供应商`,'purple']].map(([ic,l,v,n,c])=>`<article class="stat-card"><div class="stat-icon ${c}">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`;}
   function render(){
-    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出']};
+    const titles={suppliers:['商品映射库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],shipment:['运单回填','把快递单号表的订单号补上']};
     $('#page-title').textContent=titles[view][0];$('#page-subtitle').textContent=titles[view][1];
     $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
-    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():renderExport());
+    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='shipment'?renderShipment():renderExport());
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
   }
@@ -267,6 +267,7 @@
     bindProductActions();
     $('#product-search')?.addEventListener('input',e=>{query=e.target.value;productPage=1;$('#products-table').innerHTML=productsTable();const badge=$('#product-count');if(badge)badge.textContent=String(visibleProducts().length);bindProductActions();});
     $('#review-candidates')?.addEventListener('click',reviewCandidates);
+    bindShipment();
     $('#import-quote')?.addEventListener('click',()=>$('#quote-file').click());
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
@@ -558,6 +559,157 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
       };
       draw();
     });
+  }
+  const SHIPMENT_FIELDS = [
+    ['orderNo', '订单号列', ['订单编号', '订单号', '平台订单号', '订单编码', '订单号码']],
+    ['recipient', '收货人', ['收货人', '收件人', '收货人姓名', '收件人姓名', '收货姓名']],
+    ['phone', '收货电话', ['收货人号码', '收货人电话', '收货人手机', '收件人电话', '收件人手机', '手机', '手机号', '联系电话', '电话']],
+    ['address', '收货地址', ['收货人地址', '收货地址', '详细地址', '收件地址', '地址']],
+    ['product', '商品名称', ['商品名称', '产品名称', '品名', '货品名称', '商品']],
+    ['tracking', '快递单号', ['快递单号', '运单号', '物流单号', '快递编号', 'tracking', '追踪号']]
+  ];
+  let shipment = null;
+  function shipmentAutoMap(headers) {
+    const out = {};
+    for (const [key, , aliases] of SHIPMENT_FIELDS) out[key] = matchColumn(headers || [], aliases);
+    return out;
+  }
+  function shipmentOrders() {
+    return activeRows().filter(r => String(r.orderNo || '').trim());
+  }
+  function shipmentMatch(rows, map) {
+    const cell = (row, key) => { const i = map[key]; return i == null || i < 0 ? '' : String(row?.[i] ?? '').trim(); };
+    const orders = shipmentOrders();
+    const byPhoneName = new Map(), byPhone = new Map(), byName = new Map();
+    const push = (m, k, v) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+    for (const o of orders) {
+      const phone = normalizePhone(o.phone), name = norm(o.recipient);
+      if (phone && name) push(byPhoneName, phone + '|' + name, o);
+      if (phone) push(byPhone, phone, o);
+      if (name) push(byName, name, o);
+    }
+    const uniq = list => { if (!list || !list.length) return null; return new Set(list.map(o => o.id)).size === 1 ? list[0] : null; };
+    return rows.map((row, index) => {
+      const phone = normalizePhone(cell(row, 'phone'));
+      const name = norm(cell(row, 'recipient'));
+      const addr = norm(cell(row, 'address'));
+      const nearAddr = list => (list || []).filter(o => { const a = norm(o.address); return a && addr && (a.includes(addr) || addr.includes(a)); });
+      let hit = null, how = '';
+      const tiers = [
+        [phone && name ? byPhoneName.get(phone + '|' + name) : null, '电话+收货人'],
+        [phone ? byPhone.get(phone) : null, '电话'],
+        [name && addr ? nearAddr(byName.get(name)) : null, '收货人+地址'],
+        [name ? byName.get(name) : null, '收货人']
+      ];
+      for (const [list, label] of tiers) { const u = uniq(list); if (u) { hit = u; how = label; break; } }
+      return {
+        row, index,
+        recipient: cell(row, 'recipient'), phone: cell(row, 'phone'), address: cell(row, 'address'),
+        product: cell(row, 'product'), tracking: cell(row, 'tracking'),
+        orderNo: hit ? hit.orderNo : '', how: hit ? how : '', orderId: hit ? hit.id : ''
+      };
+    });
+  }
+  async function openShipment(file) {
+    if (!file) return;
+    await guardAsync(async () => {
+      const book = await OrderExcel.read(file);
+      let si = book.sheets.findIndex(s => s.rows.length > 2);
+      if (si < 0) si = 0;
+      const d = { sheet: si, header: OrderExcel.detectHeader(book.sheets[si].rows), map: {}, target: 'auto' };
+      d.map = shipmentAutoMap(book.sheets[si].rows[d.header]);
+      const draw = () => {
+        const sheet = book.sheets[d.sheet], headers = sheet.rows[d.header] || [];
+        const configured = { ...d.map };
+        const targetIndex = configured.orderNo >= 0 ? configured.orderNo : -1;
+        openModal('运单回填 · 选择列', `
+          <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · ${book.sheets.length} 个工作表 · ${Math.max(0, sheet.rows.length - d.header - 1)} 行。</span></div>
+          <div class="form-grid">
+            ${selectField('工作表', 's-sheet', book.sheets.map((s, i) => [i, `${s.name}（${s.rows.length} 行）`]), d.sheet)}
+            ${field('表头所在行', 's-header', d.header + 1, { type: 'number', hint: '第 1 行起算' })}
+            ${selectField('订单号写到哪一列', 's-target', [...headers.map((h, i) => [String(i), `${String(h || `列${i + 1}`).replace(/\s+/g, ' ').slice(0, 20)}（覆盖该列）`]), ['new', '追加新列「订单号」']], targetIndex >= 0 ? String(targetIndex) : 'new', true)}
+          </div>
+          <h3 class="section-label">匹配用的列</h3>
+          <div class="map-grid">${SHIPMENT_FIELDS.filter(([k]) => k !== 'orderNo').map(([k, label]) => `<label class="map-item"><span>${esc(label)}</span><select name="s-map-${k}"><option value="-1">没有此列</option>${headers.map((h, i) => `<option value="${i}" ${d.map[k] === i ? 'selected' : ''}>${esc(String(h == null || h === '' ? `列${i + 1}` : h).replace(/\s+/g, ' ').slice(0, 24))}</option>`).join('')}</select></label>`).join('')}</div>
+          <p class="muted">按「电话+收货人」优先匹配本次批次里已填订单号的明细，其次电话、收货人+地址、收货人；一条对多单时不回填，留给人工核对。</p>
+          <p class="form-error" id="shipment-error"></p>
+        `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="run-shipment">开始匹配</button>`, true);
+        $('[name="s-sheet"]').onchange = e => { d.sheet = Number(e.target.value); d.header = OrderExcel.detectHeader(book.sheets[d.sheet].rows); d.map = shipmentAutoMap(book.sheets[d.sheet].rows[d.header]); draw(); };
+        $('[name="s-header"]').onchange = e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 1 && n <= Math.min(sheet.rows.length, 20)) { d.header = n - 1; d.map = shipmentAutoMap(book.sheets[d.sheet].rows[d.header]); draw(); } };
+        for (const [k] of SHIPMENT_FIELDS) { if (k === 'orderNo') continue; const el = $(`[name="s-map-${k}"]`); if (el) el.onchange = e => { d.map[k] = Number(e.target.value); }; }
+        $('#run-shipment').onclick = () => {
+          const targetVal = $('[name="s-target"]').value;
+          const rows = sheet.rows.slice(d.header + 1).filter(r => r && r.some(v => String(v ?? '').trim()));
+          if (!rows.length) { $('#shipment-error').textContent = '表头下没有数据行。'; return; }
+          const matched = shipmentMatch(rows, d.map);
+          shipment = {
+            name: file.name, sheetName: sheet.name, header: d.header,
+            headers: [...headers],
+            rows, matched,
+            map: { ...d.map },
+            target: targetVal === 'new' ? 'new' : Number(targetVal),
+            widths: sheet.widths || [],
+            createdAt: new Date().toISOString()
+          };
+          closeModal(); render();
+          toast(`已匹配 ${matched.filter(m => m.orderNo).length} / ${matched.length} 行。`);
+        };
+      };
+      draw();
+    });
+  }
+  function shipmentStats() {
+    if (!shipment) return { total: 0, matched: 0, missing: 0 };
+    const matched = shipment.matched.filter(m => m.orderNo).length;
+    return { total: shipment.matched.length, matched, missing: shipment.matched.length - matched };
+  }
+  function shipmentPreviewRows() {
+    return shipment.matched.slice(0, 20);
+  }
+  function renderShipment() {
+    const st = shipmentStats();
+    const hasOrders = shipmentOrders().length > 0;
+    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>上传带快递单号的表，按收货人和电话匹配上一步的订单，把订单号写回同一张表再下载。</p></div><div class="intro-actions">${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
+      ${!hasOrders ? `<div class="alert warning">${icon('shield')}<span>本次批次里还没有带订单号的明细，先去「订单采集与匹配」完成匹配，再回来回填。</span></div>` : ''}
+      <section class="card"><div class="card-header"><div><h2>上传快递单号表</h2><p class="muted">支持 .xlsx / UTF-8 CSV；原表列结构保持不动，只在订单号列写入值。</p></div></div><div class="card-body"><div class="dropzone" id="shipment-drop" tabindex="0" role="button" aria-label="选择或拖入快递单号表"><div class="upload-icon">${icon('upload')}</div><h3>拖入快递单号表，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB</p><span class="drop-hint">自动识别收货人、电话、地址、快递单号</span></div><input id="shipment-file" type="file" accept=".xlsx,.csv" hidden></div></section>
+      ${shipment ? `<section class="card"><div class="card-header"><div><h2>${esc(shipment.name)}</h2><p class="muted">${esc(shipment.sheetName)} · 共 ${st.total} 行 · 匹配 ${st.matched} · 未匹配 ${st.missing}</p></div><div class="intro-actions"><span class="pill ${st.missing ? 'warning' : 'success'}">${st.missing ? `${st.missing} 行未匹配` : '全部匹配'}</span><button class="btn ghost small" id="shipment-remap">调整列对应</button></div></div>
+        ${st.missing ? `<div class="alert warning">${icon('shield')}<span>${st.missing} 行没有匹配到订单号，下载后这些行的订单号列会是空的；可在表格里按收货人/电话人工补。</span></div>` : ''}
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>收货人</th><th>电话</th><th>快递单号</th><th>商品</th><th>订单号</th><th>匹配依据</th></tr></thead><tbody>${shipmentPreviewRows().map(m => `<tr><td>${esc(m.recipient || '—')}</td><td class="mono">${esc(m.phone || '—')}</td><td class="mono">${esc(m.tracking || '—')}</td><td class="product-cell">${esc(String(m.product || '').slice(0, 30) || '—')}</td><td class="mono">${m.orderNo ? esc(m.orderNo) : '<span class="muted">未匹配</span>'}</td><td>${m.how ? esc(m.how) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
+        <div class="pagination"><span>预览前 ${shipmentPreviewRows().length} 行，下载包含全部 ${st.total} 行。</span></div></section>` : ''}`;
+  }
+  async function exportShipment() {
+    if (!shipment) return;
+    const headers = [...shipment.headers];
+    const append = shipment.target === 'new';
+    if (append) headers.push('订单号');
+    const rows = shipment.matched.map(m => {
+      const cells = shipment.headers.map((h, i) => m.row[i] ?? '');
+      if (append) cells.push(m.orderNo || '');
+      else cells[shipment.target] = m.orderNo || '';
+      return cells;
+    });
+    const bytes = await OrderExcel.buildWorkbook({
+      headers: headers.map((h, i) => String(h || `列${i + 1}`)),
+      rows,
+      sheetName: shipment.sheetName || 'Sheet1',
+      widths: shipment.widths
+    });
+    OrderExcel.downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${shipment.name.replace(/\.(xlsx|csv)$/i, '')}_回填订单号_${stamp()}.xlsx`);
+    toast(`已导出 ${rows.length} 行，其中 ${shipment.matched.filter(m => m.orderNo).length} 行带订单号。`);
+  }
+  function bindShipment() {
+    const drop = $('#shipment-drop');
+    $('#shipment-drop')?.addEventListener('click', () => $('#shipment-file').click());
+    $('#shipment-drop')?.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#shipment-file').click(); } });
+    if (drop) {
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add('dragover'); };
+      drop.ondragleave = () => drop.classList.remove('dragover');
+      drop.ondrop = e => { e.preventDefault(); drop.classList.remove('dragover'); const f = e.dataTransfer.files?.[0]; if (f) openShipment(f); };
+    }
+    $('#shipment-file')?.addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; openShipment(f); });
+    $('#shipment-download')?.addEventListener('click', () => guardAsync(exportShipment));
+    $('#shipment-reset')?.addEventListener('click', () => { shipment = null; render(); });
+    $('#shipment-remap')?.addEventListener('click', () => { toast('重新上传同一份表即可重选列。', 'warning'); $('#shipment-file').click(); });
   }
   function templateModal(sid,override=null){const supplier=sById(sid);if(!supplier)return;const t=copy(override||supplier.template||{name:'自定义格式',sheetName:'Sheet1',columns:copy(OrderSeed.supplier.template.columns)});openModal(`${supplier.name} · 格式设置`,`<div class="template-top"><div><strong>${esc(t.name)}</strong><p class="muted">逐列指定导出内容。只读取上传模板的表头，不带入示例订单。</p></div><button class="btn secondary small" id="upload-template">上传格式样表</button><input id="template-file" type="file" accept=".xlsx,.csv" hidden></div><form id="template-form"><div class="form-grid">${field('格式名称','templateName',t.name,{required:true})}${field('导出工作表名称','sheetName',t.sheetName||'Sheet1',{required:true})}</div><div class="table-wrap"><table class="data-table template-table"><thead><tr><th>输出列名</th><th>取值来源</th><th>缺失时默认值 / 固定值</th><th>必填</th></tr></thead><tbody>${t.columns.map((c,i)=>`<tr><td><input name="header-${i}" value="${esc(c.header)}" aria-label="第${i+1}列名称"></td><td><select name="field-${i}" aria-label="${esc(c.header)}取值来源">${EXPORT_FIELDS.map(([k,l])=>`<option value="${k}" ${k===c.field?'selected':''}>${l}</option>`).join('')}</select></td><td><input name="fallback-${i}" value="${esc(c.fallback||'')}" aria-label="${esc(c.header)}默认值"></td><td><input type="checkbox" name="required-${i}" ${c.required?'checked':''} aria-label="${esc(c.header)}为必填"></td></tr>`).join('')}</tbody></table></div><p class="muted">友本要求的列顺序为：订单号、买家昵称、收货人、详细地址、收货人电话、商品编码、数量。未提供买家昵称时，默认留空。</p><p class="muted">「订单号」允许为空：即使勾选必填，也不会阻止导出，只是该格留空。</p><p class="form-error" id="template-error"></p></form>`,`<button class="btn secondary" data-cancel>取消</button><button class="btn" id="save-template">保存格式</button>`,true);
     $('#upload-template').onclick=()=>$('#template-file').click();$('#template-file').onchange=e=>guardAsync(async()=>{const file=e.target.files[0];if(!file)return;const book=await OrderExcel.read(file);let si=0,hi=OrderExcel.detectHeader(book.sheets[0].rows);const showPicker=()=>{const sh=book.sheets[si],headers=sh.rows[hi]||[];openModal('选择供应商格式表头',`<div class="form-grid">${selectField('模板工作表','templateSheet',book.sheets.map((s,i)=>[i,s.name]),si)}${field('表头行','templateHeader',hi+1,{type:'number'})}</div><p class="muted">将使用下列 ${headers.length} 列生成新订单文件，表头上方的说明及原有数据行不会复制。</p><div class="template-header-chips">${headers.map(h=>`<span class="pill neutral">${esc(h||'空白列')}</span>`).join('')}</div>`,`<button class="btn secondary" data-cancel>取消</button><button class="btn" id="apply-template">使用这些列</button>`);$('[name=templateSheet]').onchange=e=>{si=Number(e.target.value);hi=OrderExcel.detectHeader(book.sheets[si].rows);showPicker();};$('[name=templateHeader]').onchange=e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>0&&n<=Math.min(20,sh.rows.length)){hi=n-1;showPicker();}else toast('请输入有效表头行。','warning');};$('#apply-template').onclick=()=>{if(!headers.length||headers.some(h=>!String(h??'').trim())){toast('表头包含空白列，请选择完整表头或整理模板后再上传。','warning');return;}const cols=headers.map(h=>{const n=norm(h);let field='blank';if(['商品编码','sku码','sku','供应商商品编码'].map(norm).includes(n))field='supplierSku';else{const f=FIELDS.find(([,l,names])=>norm(l)===n||names.some(x=>norm(x)===n));field=f?.[0]||'blank';if(field==='sourceSku')field='supplierSku';}return {header:String(h),field,required:['orderNo','recipient','phone','address','supplierSku','quantity'].includes(field),fallback:''};});templateModal(sid,{name:file.name,sheetName:sh.name,columns:cols,widths:sh.widths||[]});};};showPicker();});

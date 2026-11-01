@@ -20,6 +20,7 @@
 | 商品映射库 | `suppliers` | 供应商维护、报价单导入、标准商品维护、客户名称别名、商品目录导入、样表候选映射确认 |
 | 订单采集与匹配 | `import` | 多文件导入、工作表与表头选择、字段对应、商品匹配、异常处理、重复与修订处理、本次批次选择、单条删除与一键清空 |
 | 供应商格式 | `export` | 每家供应商一套格式（列名、取值来源、默认值、必填），按匹配到的供应商分组、单家 XLSX 与多家 ZIP 导出 |
+| 运单回填 | `shipment` | 上传带快递单号的回单表，按收货人/电话匹配本次批次订单，把订单号写回原表并下载 |
 
 ```mermaid
 flowchart TD
@@ -35,6 +36,9 @@ flowchart TD
   H --> K
   K --> L[单家 XLSX / 批量 ZIP]
   L --> M[记录本地导出状态]
+  M --> N[导入快递单号表]
+  N --> O[按收货人/电话匹配订单]
+  O --> P[回填订单号并下载]
 ```
 
 未匹配的明细不会进入导出，只会在导出页提示还有多少条待处理；已匹配的明细按供应商一次性生成对方格式的表。当前流程保留逐笔收件明细，不因商品相同而合并订单；商品规格与数量之间没有自动换算。例如一盒包含 30 枚鸡蛋，不会将订单数量 `1` 自动乘为 `30`。
@@ -401,6 +405,17 @@ python -m http.server 8765 --directory dist
 
 `exportOne()` / `exportAll()` 在触发浏览器下载后写入 `exportedAt`。该标记只表示应用已发起本地文件下载，不证明用户已保存文件、供应商已接单或后台已导入成功。
 
+### 7.4 运单回填（第 4 步）
+
+入口为 `openShipment()`，页面由 `renderShipment()` 渲染，页面标识 `shipment`。
+
+- 上传带快递单号的表（`.xlsx` / UTF-8 CSV），按 `SHIPMENT_FIELDS` 自动识别：订单号列、收货人、收货电话、收货地址、商品名称、快递单号；弹窗可改工作表、表头行与目标列。
+- 目标列有两种：原表已有订单号列时默认**覆盖该列**；没有时**追加新列「订单号」**，不破坏原有列结构。
+- 匹配对象是本次批次中已填订单号的明细（`shipmentOrders()`）。依次尝试：电话+收货人 → 电话 → 收货人+地址（互相包含）→ 收货人；同一个键命中多条时不回填，留给人工核对。
+- 结果按行预览前 20 行：收货人 / 电话 / 快递单号 / 商品 / 订单号 / 匹配依据；未匹配行以徽标与提示条标出。
+- `exportShipment()` 用原表表头与列宽重建工作簿，只替换目标列；未匹配行的订单号留空。文件名追加 `_回填订单号_日期`。
+- 回填状态只保存在内存（`shipment` 变量），刷新页面需重新上传；不写入 IndexedDB，避免把整张外部表塞进工作区。
+
 ## 8. Excel 引擎接口与规则
 
 ### 8.1 `OrderExcel` 接口
@@ -476,6 +491,7 @@ python -m http.server 8765 --directory dist
 | 报价单导入 | `app.js`: `quoteImport`, `quoteAutoMap`, `matchColumn`, `quoteRecords`, `quoteGroups`, `quoteSummary`, `applyQuote` |
 | 商品映射库视图 | `app.js`: `renderLibrary`, `supplierRail`, `supplierMetrics`, `productsTable`, `bindProductActions` |
 | 重复与批次 | `app.js`: `duplicateKey`, `resolveDuplicateChoice`, `activeRows`, `manageBatches`, `deleteOrders` |
+| 运单回填 | `app.js`: `openShipment`, `shipmentMatch`, `shipmentOrders`, `renderShipment`, `exportShipment` |
 | 供应商格式导出 | `app.js`: `exportRow`, `exportGroups`, `pendingExportCount`, `exportIssues`, `exportBytes` |
 | 模板与导出 | `app.js`: `templateModal`, `templateValue`, `exportIssues`, `exportBytes`, `exportOne`, `exportAll` |
 | 导出状态 | `app.js`: `markExported`, `refreshBatchExportFlags`, `includeNewBatch` |
@@ -511,6 +527,8 @@ python -m http.server 8765 --directory dist
 | 69码 复用 | 千禾套装与单瓶共用 `6928312916007`，第二个商品自动改用内部编码，全库供应商编码无重复（重复组 0） |
 | 供应商格式导出（真实文件） | 导入两份订单并完成映射后，导出页直接分组为「友本 2 条」；无需生成统一订单，点击导出即触发实际下载 |
 | 未设置格式的供应商 | 顶部横幅点名「成都定宣商贸有限公司」，该组导出按钮保持禁用；点「设置格式」可直接打开该供应商的格式配置 |
+| 运单回填（追加模式） | 2 行快递单号表按「电话+收货人」全部命中，下载文件含 JY 订单号并保留原表头，行数为表头 + 2 |
+| 运单回填（覆盖/未匹配） | 原表已有订单号列时默认覆盖该列且不重复追加（表头计数 1）；陌生收件人保持未匹配，下载后该格为空 |
 | 供应商切换 | 点击「成都定宣商贸有限公司」得 50 条（2 页），标题计数与卡片选中态一致 |
 | 两条入口一致性 | `dist/` 静态站点与重建后的 `standalone/OrderFlow.html` 跑同一套导入用例，结果一致，控制台无报错 |
 
@@ -537,6 +555,7 @@ python -m http.server 8765 --directory dist
 | 同一报价单连续导入两次 | 第二次只更新价格，不新增商品 |
 | 删除单条订单明细 | 行内「删除」或弹窗「删除明细」，确认后明细与空批次消失 |
 | 清空订单 | 右上角「清空订单」确认后明细、批次、统计归零，商品映射库保留 |
+| 上传快递单号表 | 按收货信息回填订单号并可下载；未匹配行留空并提示 |
 
 ## 11. 当前未实现的能力
 
@@ -549,6 +568,7 @@ python -m http.server 8765 --directory dist
 - 客户 SKU 别名的完整维护界面及基于编码的通用映射配置。
 - 报价单的供应商只从「供应商」列提取，表头被改写时需要手工指定该列；整列为空时默认整批跳过（可改为归入「未标注供应商」），不做品牌推断。
 - 报价单导入不解析多级表头、合并单元格的语义、图片或批注；规格/单位缺列时保持为空。
+- 运单回填只按收货信息匹配，不解析快递单号与订单的既有对应关系；回填结果需在下载的 Excel 里人工修改，页面不提供逐行编辑。
 - 「集采价」「毛利率」等列在样例报价单里大多为空，导入后保持空值，不在界面显示 0。
 - 自适应单位换算、多供应商自动择优、库存和缺货分配。
 - 完整复刻任意供应商工作簿格式、合并、多级表头和宏。
