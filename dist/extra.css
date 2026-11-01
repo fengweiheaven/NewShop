@@ -43,3 +43,14 @@
 .text-link.danger:hover{color:#a54343}
 .btn.danger-ghost{color:var(--danger);border-color:#f0d6d6;background:#fff}
 .btn.danger-ghost:hover{border-color:#e0b8b8;background:var(--danger-soft)}
+
+/* 对账账户余额 */
+.recon-account{padding:0;margin-bottom:14px}
+.recon-account-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:26px;padding:16px 20px}
+.recon-field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);min-width:150px}
+.recon-field span{font-weight:600;color:var(--text);font-size:12px}
+.recon-field strong{font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums}
+.recon-field strong.pos{color:var(--accent)}
+.recon-field strong.neg{color:var(--danger)}
+.recon-field input{width:170px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;font-size:14px}
+.recon-hint{font-size:11px;color:var(--warn);padding-bottom:6px}

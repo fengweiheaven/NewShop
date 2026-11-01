@@ -61,6 +61,17 @@
 .text-link.danger:hover{color:#a54343}
 .btn.danger-ghost{color:var(--danger);border-color:#f0d6d6;background:#fff}
 .btn.danger-ghost:hover{border-color:#e0b8b8;background:var(--danger-soft)}
+
+/* 对账账户余额 */
+.recon-account{padding:0;margin-bottom:14px}
+.recon-account-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:26px;padding:16px 20px}
+.recon-field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);min-width:150px}
+.recon-field span{font-weight:600;color:var(--text);font-size:12px}
+.recon-field strong{font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums}
+.recon-field strong.pos{color:var(--accent)}
+.recon-field strong.neg{color:var(--danger)}
+.recon-field input{width:170px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;font-size:14px}
+.recon-hint{font-size:11px;color:var(--warn);padding-bottom:6px}
 </style>
   <script>/*!
 
@@ -730,7 +741,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Quote-sheet fields added later: keep older saved workspaces readable.
     for(const p of v.products){p.barcode??='';p.brand??='';p.category??='';p.cost??='';p.groupPrice??='';p.broadcastPrice??='';p.suggestPrice??='';p.marginOwn??='';p.marginBroadcast??='';p.jdPrice??='';p.link??='';p.sourceFile??='';}
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
-    if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',createdAt:new Date().toISOString()});}}
+    for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
+    if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
@@ -874,11 +886,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   function customerModal(id) {
     const editing = !!id;
-    const c = copy(state.customers.find(x => x.id === id) || { id: uid(), name: '', contact: '', phone: '', note: '' });
-    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
+    const c = copy(state.customers.find(x => x.id === id) || { id: uid(), name: '', contact: '', phone: '', note: '', deposit: '' });
+    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${field('充值金额', 'deposit', c.deposit || '', { type: 'number', hint: '仅用于对账页的账户余额，可留空' })}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
     $('#save-customer').onclick = async () => {
       const f = new FormData($('#customer-form'));
-      ['name', 'contact', 'phone', 'note'].forEach(k => c[k] = String(f.get(k) || '').trim());
+      ['name', 'contact', 'phone', 'note', 'deposit'].forEach(k => c[k] = String(f.get(k) || '').trim());
       if (!c.name) { $('#customer-error').textContent = '请填写客户名称。'; return; }
       if (state.customers.some(x => x.id !== c.id && norm(x.name) === norm(c.name))) { $('#customer-error').textContent = '客户名称已存在。'; return; }
       const idx = state.customers.findIndex(x => x.id === c.id);
@@ -946,6 +958,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
     };
   }
+  function reconDeposit(name) {
+    const c = customerByName(name);
+    if (!c || c.deposit === '' || c.deposit == null) return 0;
+    const n = Number(c.deposit);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function reconAccount(name) {
+    const ownAll = state.orders.filter(o => !o.excluded && (String(o.customer || '').trim() || '未命名客户') === name);
+    let total = 0, noPrice = 0;
+    for (const o of ownAll) {
+      const line = reconLine(o, 'customer');
+      if (line.amount == null) noPrice++;
+      else total += line.amount;
+    }
+    const deposit = reconDeposit(name);
+    return { deposit, total: Math.round(total * 100) / 100, balance: Math.round((deposit - total) * 100) / 100, noPrice, count: ownAll.length };
+  }
   function reconGroups(rows, mode) {
     const map = new Map();
     for (const o of rows) {
@@ -957,7 +986,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (line.amount == null) item.noPrice++;
       else item.amount += line.amount;
     }
-    return [...map.values()].sort((a, b) => b.count - a.count);
+    const list = [...map.values()].sort((a, b) => b.count - a.count);
+    if (mode === 'customer') for (const g of list) { const acc = reconAccount(g.name); g.deposit = acc.deposit; g.balance = acc.balance; g.total = acc.total; }
+    return list;
   }
   const reconMoney = v => v == null ? '' : (Math.round(v * 100) / 100).toFixed(2);
   function renderRecon() {
@@ -965,19 +996,32 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const rows = reconBase();
     const groups = reconGroups(rows, mode);
     const pick = reconGroup && groups.some(g => g.name === reconGroup) ? reconGroup : '';
-    const own = pick ? rows.filter(o => (mode === 'supplier' ? reconLine(o, mode).supplierKey : reconLine(o, mode).customer) === pick) : rows;
+    const keyOf = o => mode === 'supplier' ? reconLine(o, mode).supplierKey : reconLine(o, mode).customer;
+    const own = pick ? rows.filter(o => keyOf(o) === pick) : rows;
     const lines = own.map(o => reconLine(o, mode)).sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.orderNo.localeCompare(b.orderNo));
     const units = lines.reduce((n, l) => n + l.qty, 0);
     const amount = lines.reduce((n, l) => n + (l.amount || 0), 0);
     const noPrice = lines.filter(l => l.amount == null).length;
     const isSup = mode === 'supplier';
     const groupLabel = isSup ? '供应商' : '客户';
-    return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `<button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}</div></div>
+    const account = isSup ? null : (pick ? reconAccount(pick) : {
+      deposit: groups.reduce((n, g) => n + (g.deposit || 0), 0),
+      total: groups.reduce((n, g) => n + (g.total || 0), 0),
+      balance: groups.reduce((n, g) => n + (g.balance || 0), 0),
+      noPrice: groups.reduce((n, g) => n + (g.noPrice || 0), 0)
+    });
+    return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额；填了充值金额还能看账户余额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `<button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}</div></div>
       ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
-      <div class="stats-grid">${[[isSup ? 'box' : 'box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
+      <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
+      ${!isSup ? `<section class="card recon-account"><div class="recon-account-row">
+        <label class="recon-field"><span>${pick ? esc(pick) + ' 充值金额' : '全部客户充值合计'}</span>${pick ? `<input id="recon-deposit" type="number" step="0.01" min="0" value="${account.deposit || ''}" placeholder="0.00">` : `<strong>¥${reconMoney(account.deposit)}</strong>`}</label>
+        <div class="recon-field"><span>全部订单应收</span><strong>¥${reconMoney(account.total)}</strong></div>
+        <div class="recon-field"><span>账户余额</span><strong class="${account.balance < 0 ? 'neg' : 'pos'}">¥${reconMoney(account.balance)}</strong></div>
+        ${account.noPrice ? `<div class="recon-hint">${account.noPrice} 条明细缺单价，未计入应收</div>` : ''}
+      </div></section>` : ''}
       <div class="export-layout"><aside class="card export-list"><div class="card-header"><h2>${groupLabel} <span class="count">${groups.length}</span></h2></div>
         <button class="export-group ${pick === '' ? 'active' : ''}" data-recon-group=""><span class="supplier-avatar">全</span><span><strong>全部${groupLabel}</strong><small>${rows.length} 条明细</small></span>${icon('arrow')}</button>
-        ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}</small></span>${icon('arrow')}</button>`).join('')}
+        ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
         ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
         <div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>下单时间</th>${pick ? '' : `<th>${groupLabel}</th>`}<th>商品</th><th>数量</th><th>${isSup ? '供价' : '单价'}</th><th>金额</th>${isSup ? '<th>客户</th>' : '<th>供应商</th>'}<th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="mono">${esc(l.orderNo || '—')}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td>${pick ? '' : `<td>${esc(isSup ? l.supplierKey : l.customer)}</td>`}<td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td>${esc(isSup ? l.customer : (l.supplier || '—'))}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>
@@ -1000,13 +1044,27 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       : [l.orderNo, l.date, l.customer, l.product, l.spec, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.supplier, l.sku, l.recipient, l.phone, l.address, l.status]);
     const name = pick ? `${pick}_${isSup ? '供应商' : '客户'}对账` : `全部${isSup ? '供应商' : '客户'}_对账`;
     await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: isSup ? '供应商对账' : '客户对账', filename: `${name}_${stamp()}.xlsx` });
-    toast(`已导出 ${data.length} 条${isSup ? '供应商' : '客户'}对账明细。`);
+    if (!isSup) {
+      const acc = pick ? reconAccount(pick) : groups.reduce((a, g) => ({ deposit: a.deposit + (g.deposit || 0), total: a.total + (g.total || 0), balance: a.balance + (g.balance || 0) }), { deposit: 0, total: 0, balance: 0 });
+      toast(`已导出 ${data.length} 条客户对账；充值 ¥${reconMoney(acc.deposit)} · 应收 ¥${reconMoney(acc.total)} · 余额 ¥${reconMoney(acc.balance)}。`);
+    } else {
+      toast(`已导出 ${data.length} 条供应商对账明细。`);
+    }
   }
   function bindRecon() {
     $$('[data-recon-mode]').forEach(b => b.onclick = () => { if (reconMode !== b.dataset.reconMode) { reconMode = b.dataset.reconMode; reconGroup = ''; render(); } });
     $$('[data-recon-group]').forEach(b => b.onclick = () => { reconGroup = b.dataset.reconGroup; render(); });
     $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
+    $('#recon-deposit')?.addEventListener('change', async e => {
+      if (!reconGroup) return;
+      const c = customerByName(reconGroup);
+      if (!c) { toast('客户不存在，先到客户库登记。', 'warning'); return; }
+      const n = Number(e.target.value);
+      c.deposit = e.target.value.trim() === '' ? '' : String(Number.isFinite(n) ? n : 0);
+      await save(); render();
+      toast(`已保存「${reconGroup}」充值金额 ¥${reconMoney(reconDeposit(reconGroup))}。`);
+    });
   }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';
