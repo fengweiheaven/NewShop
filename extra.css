@@ -214,3 +214,6 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .ship-group .data-table{font-size:11px}
 
 .form-hint-line{margin:-6px 0 10px;font-size:11px;color:#8b9aa4}
+
+/* 订单导出标识 */
+.export-time{display:block;margin-top:2px;color:#94a3b8;font-size:10px}
