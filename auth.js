@@ -177,8 +177,6 @@
   function decorateHeader() {
     const badge = document.querySelector('.save-badge');
     if (badge) badge.innerHTML = '<i></i>已连接云端 · 自动保存';
-    const mark = document.querySelector('.local-mark span');
-    if (mark) { mark.textContent = '文件本地解析 · 数据存云端'; mark.closest('.local-mark')?.setAttribute('title', 'Excel 在浏览器内解析，不上传原文件；解析后的订单数据保存在云端'); }
     const actions = document.querySelector('.topbar-actions');
     if (!actions || document.getElementById('user-chip')) return;
     const p = profile || { name: '', phone: '', role: '' };
