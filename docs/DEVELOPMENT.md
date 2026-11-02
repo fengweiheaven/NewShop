@@ -470,6 +470,16 @@ python -m http.server 8765 --directory dist
 - 「是否开票」是订单级标记 `order.invoiced`，在表格里勾选即保存，导出为「是 / 否」。
 - 供应商对账仍按供应商口径：序号 / 供应商名称 / 订单号 / 商品名称 / 69码 / 数量 / 供价 / 金额 / 客户 / 收货人。
 
+## 10.1 存储适配层与联网方案
+
+工作区读写已收敛到 `dist/store.js`（`window.OrderStore`），`init()/save()` 只调用 `load()` / `save()`，不再直接操作 IndexedDB。
+
+- `dist/config.js`：`window.ORDERFLOW_CONFIG = { mode, envId, collection, docId }`。`mode: 'local'` 为单机（IndexedDB，默认，行为与旧版一致）；`mode: 'cloudbase'` 时走腾讯云开发。
+- 云端模式的数据形态：`workspaces/main` 一个文档，字段 `data`（整个工作区）、`rev`、`updatedAt`、`updatedBy`；保存时以 `rev` 做乐观锁，版本不一致会抛「数据已被他人修改」，由界面提示刷新。
+- `startWatch()` 在云端模式下订阅文档变更，供多人协作时热更新；本地模式为空实现。
+- 云开发 SDK 按需从 CDN 动态加载（`cloudbase.full.js`），本地模式不加载，不增加离线负担。
+- 待接入：登录页与角色控制（`auth.js`）、按角色的字段遮挡、`audit_logs` 写入、首次云端初始化脚本。
+
 ## 11. Excel 引擎接口与规则
 
 ### 11.1 `OrderExcel` 接口

@@ -89,9 +89,9 @@
   function markExported(rows){const ids=new Set(rows.map(r=>r.id)),time=new Date().toISOString();for(const r of state.orders)if(ids.has(r.id))r.exportedAt=time;refreshBatchExportFlags();}
   async function init() {
     try {
-      db = await new Promise((resolve,reject)=>{const r=indexedDB.open('orderflow-workbench-v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('workspace');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-      state = await new Promise((resolve,reject)=>{const r=db.transaction('workspace').objectStore('workspace').get('state');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-    } catch(e) {storageFailure=true;}
+      const loaded = await OrderStore.load();
+      state = loaded ? loaded.state : null;
+    } catch(e) { storageFailure = true; console.error('[OrderFlow] 读取工作区失败', e); }
     if(!state || state.version!==1) state=seed();
     try{migrateScope(state);}catch(e){console.error("[OrderFlow] 数据迁移失败",e);}
     bindShell();
@@ -104,9 +104,8 @@
     if(storageFailure)toast('浏览器未允许本地存储，请在关闭前导出备份。','warning');
   }
   async function save() {
-    if(!db)return;
-    try {await new Promise((resolve,reject)=>{const t=db.transaction('workspace','readwrite');t.objectStore('workspace').put(copy(state),'state');t.oncomplete=resolve;t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error);});}
-    catch(e){storageFailure=true;toast('本地保存失败，请立即备份数据。','warning');}
+    try { await OrderStore.save(copy(state)); }
+    catch(e){ storageFailure=true; toast(e && e.message ? e.message : '保存失败，请立即备份数据。','warning'); }
   }
   function toast(msg,type='success') {
     const el=document.createElement('div');el.className='toast '+type;el.setAttribute('role','status');el.textContent=msg;$('#toast-root').append(el);setTimeout(()=>el.remove(),5500);
