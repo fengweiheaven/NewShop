@@ -120,6 +120,7 @@
       + '<div class="user-menu-role">角色：' + (ROLE_NAMES[p.role] || '未分配') + '</div>'
       + '<div class="user-menu-version">版本 ' + ((document.querySelector('meta[name=orderflow-build]') || {}).content || 'local') + '</div>'
       + '<button type="button" class="user-menu-item plain" id="nickname-btn">修改昵称</button>'
+      + '<button type="button" class="user-menu-item plain" id="members-btn">成员与角色</button>'
       + '<button type="button" class="user-menu-item" id="logout-btn">退出登录</button>';
     document.body.append(menu);
     const r = anchor.getBoundingClientRect();
@@ -127,6 +128,7 @@
     menu.style.right = Math.max(12, window.innerWidth - r.right) + 'px';
     menu.addEventListener('click', e => e.stopPropagation());
     document.getElementById('nickname-btn').onclick = () => { closeMenu(); openNicknameDialog(); };
+    document.getElementById('members-btn').onclick = () => { closeMenu(); document.dispatchEvent(new CustomEvent('orderflow:members')); };
     document.getElementById('logout-btn').onclick = async () => {
       try { await state.auth.signOut(); } catch (_) { }
       location.reload();

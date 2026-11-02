@@ -242,6 +242,43 @@
     };
     draw();
   }
+  const ROLE_OPTIONS = [['admin', '管理员'], ['clerk', '客服'], ['warehouse', '仓库'], ['finance', '财务']];
+  async function membersModal() {
+    if (!window.OrderAuth || !window.OrderAuth.app) { toast('云端模式才能管理成员。', 'warning'); return; }
+    const db = window.OrderAuth.app.rdb();
+    let rows = [];
+    try {
+      const r = await db.from('app_users').select('*');
+      if (r.error) throw new Error(r.error.message);
+      rows = Array.isArray(r.data) ? r.data : [];
+    } catch (e) { toast('读取成员失败：' + (e && e.message ? e.message : e), 'warning'); return; }
+    const me = (window.OrderAuth.user || {}).uid || '';
+    const hasMe = rows.some(r => r.uid === me);
+    const body = `<p class="muted">角色只影响界面显示与之后的权限控制；账号本身要在云开发控制台的「身份认证 → 用户管理」里创建，创建后在这里分配角色。</p>
+      ${!hasMe ? `<div class="alert info">${icon('user')}<span>当前登录账号（uid <code>${esc(me)}</code>）还没有成员记录。</span><button class="btn secondary small" id="add-me">用我的账号建一条</button></div>` : ''}
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>姓名</th><th>手机号</th><th>uid</th><th>角色</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${esc(r.name || '—')}</td><td class="mono">${esc(r.phone || '—')}</td><td class="mono">${esc(r.uid)}</td><td><select data-role-uid="${esc(r.uid)}">${ROLE_OPTIONS.map(([v, l]) => `<option value="${v}" ${r.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('') || '<tr><td colspan="4" class="empty-cell">还没有成员记录</td></tr>'}
+      </tbody></table></div>`;
+    openModal('成员与角色', body, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="save-members">保存角色</button>`, true);
+    $('#add-me')?.addEventListener('click', async () => {
+      const u = window.OrderAuth.user || {};
+      const { error } = await db.from('app_users').upsert({ uid: me, name: u.username || u.phone || '我', phone: u.phone || '', role: 'admin' });
+      if (error) { toast('创建失败：' + error.message, 'warning'); return; }
+      toast('已用当前账号创建成员记录，角色设为管理员。');
+      membersModal();
+    });
+    $('#save-members').onclick = async () => {
+      const picks = [...document.querySelectorAll('[data-role-uid]')].map(sel => ({ uid: sel.dataset.roleUid, role: sel.value }));
+      let done = 0;
+      for (const p of picks) {
+        const row = rows.find(r => r.uid === p.uid) || {};
+        const { error } = await db.from('app_users').upsert({ uid: p.uid, name: row.name || '', phone: row.phone || '', role: p.role });
+        if (!error) done++;
+      }
+      toast(`已保存 ${done} 个成员的角色。`);
+      closeModal();
+    };
+  }
   function openFormatManager() {
     window.__reopenManager = null;
     const rows = state.suppliers.map(s => {
@@ -1628,6 +1665,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   }
   async function loadDemo(){if(state.batches.some(b=>b.demo)){toast('演示数据已经载入，可在“管理导入批次”中删除。','warning');return;}const add=async()=>{const id=uid();state.batches.push({id,name:'演示订单（模拟数据）.xlsx',customer:'演示客户',hash:'demo-'+id,demo:true,createdAt:new Date().toISOString()});for(let i=0;i<6;i++){const c=OrderSeed.candidates[i<2?0:i<5?1:2];state.orders.push({id:uid(),batchId:id,customer:c.customer,orderNo:'DEMO-'+String(i+1).padStart(4,'0'),productName:c.name,sourceSku:c.sourceSku||'',sourceSpec:c.customer==='GBH'?'早餐代餐':'',sourceLineId:'demo-'+i,quantity:1,recipient:'模拟收件人'+(i+1),phone:'1380000000'+i,address:'示例省示例市示例区演示路'+(i+1)+'号（模拟地址）',buyerNickname:'',remark:'模拟数据，请勿实际发货',date:stamp(),unitPrice:'',sourceFile:'演示订单（模拟数据）.xlsx',sourceSheet:'模拟数据',sourceRow:i+2,excluded:false,manual:false,raw:{说明:'模拟数据，请勿实际发货'}});}includeNewBatch(id);invalidate();await save();render();toast('已载入6条模拟订单，请确认商品映射。');};if(activeRows().length)confirmDialog('加入演示订单','将新增6条模拟订单，可在批次管理中删除。本次选中的批次会一同参与后续生成。',add);else await add();}
   window.OrderFlow={getState:()=>copy(state),status,summary,findProducts,validateBackup,exportIssues,templateValue,UNIFIED,autoMap,activeRows,duplicateKey};
+  document.addEventListener('orderflow:members', () => membersModal());
   const boot=()=>{ if (window.OrderAuth && window.OrderAuth.ready) window.OrderAuth.ready.then(() => init()); else init(); };
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',boot):boot();
 })();
