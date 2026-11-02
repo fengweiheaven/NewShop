@@ -41,7 +41,7 @@
     } catch (_) { }
     return {
       uid: u.uid,
-      name: (row && row.name) || u.username || u.phone || '',
+      name: (row && row.name) || u.nickname || u.name || u.username || u.phone || '',
       phone: (row && row.phone) || u.phone || '',
       role: (row && row.role) || ''
     };
@@ -118,17 +118,60 @@
     menu.id = 'user-menu';
     menu.innerHTML = '<div class="user-menu-head"><strong>' + (p.name || p.phone || '已登录') + '</strong><small>' + (p.phone || '') + '</small></div>'
       + '<div class="user-menu-role">角色：' + (ROLE_NAMES[p.role] || '未分配') + '</div>'
+      + '<button type="button" class="user-menu-item plain" id="nickname-btn">修改昵称</button>'
       + '<button type="button" class="user-menu-item" id="logout-btn">退出登录</button>';
     document.body.append(menu);
     const r = anchor.getBoundingClientRect();
     menu.style.top = (r.bottom + 8) + 'px';
     menu.style.right = Math.max(12, window.innerWidth - r.right) + 'px';
     menu.addEventListener('click', e => e.stopPropagation());
+    document.getElementById('nickname-btn').onclick = () => { closeMenu(); openNicknameDialog(); };
     document.getElementById('logout-btn').onclick = async () => {
       try { await state.auth.signOut(); } catch (_) { }
       location.reload();
     };
     setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  }
+  function openNicknameDialog() {
+    const p = profile || {};
+    const wrap = el('div', 'mini-dialog');
+    wrap.id = 'nickname-dialog';
+    wrap.innerHTML = '<form class="mini-card"><h3>修改昵称</h3>'
+      + '<p class="muted">昵称只用于界面显示，不改登录手机号。</p>'
+      + '<label class="field"><span>昵称</span><input name="nickname" value="' + (p.name && p.name !== p.phone ? p.name : '') + '" placeholder="例如：老板 / 小张" required></label>'
+      + '<p class="form-error" id="nickname-error"></p>'
+      + '<div class="mini-actions"><button type="button" class="btn secondary" id="nickname-cancel">取消</button><button type="submit" class="btn" id="nickname-save">保存</button></div></form>';
+    document.body.append(wrap);
+    const form = wrap.querySelector('form');
+    wrap.querySelector('#nickname-cancel').onclick = () => wrap.remove();
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const value = String(new FormData(form).get('nickname') || '').trim();
+      if (!value) { wrap.querySelector('#nickname-error').textContent = '请填写昵称。'; return; }
+      const btn = wrap.querySelector('#nickname-save');
+      btn.disabled = true; btn.textContent = '保存中…';
+      try {
+        const uid = (currentUser() || {}).uid || '';
+        const { error } = await state.app.rdb().from('app_users').upsert({ uid, name: value, phone: p.phone || '', role: p.role || 'clerk' });
+        if (error) throw new Error(error.message || '保存失败');
+        profile = Object.assign({}, p, { name: value, role: p.role || 'clerk' });
+        state.role = profile.role;
+        updateChip();
+        wrap.remove();
+      } catch (err) {
+        wrap.querySelector('#nickname-error').textContent = (err && err.message) || '保存失败';
+        btn.disabled = false; btn.textContent = '保存';
+      }
+    };
+    form.querySelector('[name=nickname]').focus();
+  }
+  function updateChip() {
+    const chip = document.getElementById('user-chip');
+    if (!chip || !profile) return;
+    const initial = (profile.name || profile.phone || '?').slice(0, 1);
+    chip.querySelector('.user-avatar').textContent = initial;
+    chip.querySelector('.user-meta strong').textContent = profile.name || profile.phone || '已登录';
+    chip.querySelector('.user-meta small').textContent = ROLE_NAMES[profile.role] || '未分配角色';
   }
   function decorateHeader() {
     const badge = document.querySelector('.save-badge');
