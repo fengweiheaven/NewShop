@@ -128,3 +128,12 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .format-head h2{margin:2px 0 4px;font-size:20px}
 .format-head .eyebrow{margin:0}
 .format-head .muted{margin:0;font-size:13px}
+
+/* 右侧供应商格式卡 */
+.sf-list{display:flex;flex-direction:column;gap:2px}
+.sf-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #eef2f7}
+.sf-row:last-child{border-bottom:0}
+.sf-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sf-name strong{font-size:14px;color:#0f172a}
+.sf-name small{font-size:12px;color:#64748b}
+.sf-row .template-actions{flex:none}
