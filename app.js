@@ -131,9 +131,9 @@
   }
   function bindShell() {
     $$('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;query='';page=1;filter='all';render();});
-    $('#backup-btn').onclick=()=>{OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`序单备份_${stamp()}.json`);toast('备份已下载，包含本机商品映射和订单数据。');};
+    $('#backup-btn').onclick=()=>{const cloud=OrderStore.mode==='cloudbase';OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_快照_${stamp()}.json`);toast(cloud?'快照已下载（当前云端工作区的完整拷贝）。':'备份已下载，包含本机商品映射和订单数据。');};
     $('#restore-btn').onclick=()=>$('#restore-input').click();
-    $('#restore-input').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>40*1024*1024)throw Error('备份超过40MB。');const v=JSON.parse(await f.text());validateBackup(v);confirmDialog('恢复数据备份','恢复后将替换当前浏览器的数据。建议先点击右上角“备份数据”。',async()=>{state=v;invalidate();await save();render();toast('已恢复备份，数据可直接用于导出。');});}catch(err){toast(err.message,'warning');}e.target.value='';};
+    $('#restore-input').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>40*1024*1024)throw Error('备份超过40MB。');const v=JSON.parse(await f.text());validateBackup(v);const cloud=OrderStore.mode==='cloudbase';const tip=cloud?'恢复后会覆盖云端工作区，所有同事看到的数据都会被替换为这份快照。建议先点“备份数据”留一份当前数据。':'恢复后将替换当前浏览器的数据。建议先点击右上角“备份数据”。';confirmDialog('恢复数据备份',tip,async()=>{OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_恢复前快照_${stamp()}.json`);state=v;invalidate();await save();render();toast('已恢复备份；恢复前的数据也已自动下载一份。');});}catch(err){toast(err.message,'warning');}e.target.value='';};
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Tab'&&$('#modal-root .modal')){const a=$$('button,input,select,textarea,[tabindex="0"]',$('#modal-root')).filter(x=>!x.disabled);if(!a.length)return;const first=a[0],last=a[a.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
   }
   function validateBackup(v){
