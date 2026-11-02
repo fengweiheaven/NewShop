@@ -7,6 +7,7 @@ const SRC = path.join(__dirname, '..', 'dist');
 const OUT = path.join(__dirname, '..', 'public');
 const ASSETS = ['style.css', 'extra.css', 'seed.js', 'core.js', 'config.js', 'config.local.js', 'store.js', 'auth.js', 'app.js', 'vendor/jszip.min.js'];
 const version = (process.env.GITHUB_SHA || Date.now().toString(36)).slice(0, 7);
+const sha = (process.env.GITHUB_SHA || '').slice(0, 7);
 
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -38,7 +39,8 @@ for (const asset of ASSETS) {
   const re = new RegExp('(src|href)="' + asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g');
   html = html.replace(re, `$1="${asset}?v=${version}"`);
 }
-html = html.replace('</head>', `<meta name="orderflow-build" content="${version}"></head>`);
+html = html.replace('</head>', `<meta name="orderflow-build" content="${version}"><meta name="orderflow-sha" content="${sha}"><meta name="orderflow-repo" content="fengweiheaven/NewShop"></head>`);
 fs.writeFileSync(indexPath, html);
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
+fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify({ version, sha, at: new Date().toISOString() }));
 console.log('built public/ version', version);

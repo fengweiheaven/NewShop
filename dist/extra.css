@@ -190,3 +190,8 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .workspace-grid{display:block;grid-template-columns:none;margin-bottom:16px}
 .workspace-grid>.card{margin-bottom:0}
 .workspace-grid .dropzone{min-height:96px}
+
+/* 新版本提示 */
+.update-banner{position:fixed;left:20px;bottom:20px;z-index:300;display:flex;align-items:center;gap:10px;background:#0f3b38;color:#e8fffb;padding:10px 12px 10px 16px;border-radius:10px;box-shadow:0 10px 30px #10243140;font-size:12px}
+.update-banner .btn{background:#25a596;border-color:transparent;color:#fff}
+.update-close{background:transparent;border:0;color:#9fd4cc;font-size:16px;line-height:1;cursor:pointer;padding:0 2px}
