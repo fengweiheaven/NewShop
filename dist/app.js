@@ -590,7 +590,7 @@
       }).length;
       const newSupNames = [...new Set(items.map(it => get(it.raw, 'supplier')).filter(Boolean))]
         .filter(name => !supplierByName(name));
-      openModal('导入商品池', `
+      openModal('导入商品表', `
         <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · 工作表「${esc(book.sheets[si].name)}」· 识别 <strong>${items.length}</strong> 条商品。</span></div>
         <div class="stats-grid compact">${[['新增商品', items.length - existing, '按内部编码 / 供应商编码匹配不到'], ['更新商品', existing, '编码已存在，按表内数据覆盖'], ['新建供应商', newSupNames.length, newSupNames.slice(0, 3).join('、') || '无需新建']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
         <p class="muted">匹配顺序：先按「内部编码」，再按同一供应商下的「供应商编码」；都匹配不到就新增。空单元格不会覆盖已有值。</p>
@@ -634,7 +634,7 @@
           if (!prod.status) prod.status = '合作中';
         }
         await save(); closeModal(); render();
-        toast(`商品池导入完成：新增 ${added} 个商品、更新 ${updated} 个${supAdded ? `，新建 ${supAdded} 个供应商` : ''}。`);
+        toast(`商品表导入完成：新增 ${added} 个商品、更新 ${updated} 个${supAdded ? `，新建 ${supAdded} 个供应商` : ''}。`);
       };
     });
   }
@@ -653,17 +653,17 @@
       ];
     });
     const scope = supplierFilter === 'all' ? '全部供应商' : (sById(supplierFilter)?.name || '供应商');
-    await OrderExcel.downloadWorkbook({ headers, rows, sheetName: '商品池', filename: `商品池_${scope}_${stamp()}.xlsx` });
+    await OrderExcel.downloadWorkbook({ headers, rows, sheetName: '商品池', filename: `商品表_${scope}_${stamp()}.xlsx` });
     toast(`已导出 ${rows.length} 个商品（${scope}）。`);
   }
   function renderLibrary() {
     if (supplierFilter !== 'all' && !sById(supplierFilter)) supplierFilter = 'all';
     const sel = supplierFilter === 'all' ? null : sById(supplierFilter);
     const count = visibleProducts().length;
-    return `<div class="page-intro"><div><div class="eyebrow">SUPPLIER LIBRARY</div><h1>一次建立，日常复用</h1><p>导入供应商报价单，自动识别商品与供应商；点击上方供应商即可切换查看其商品。</p></div><div class="intro-actions"><button class="btn secondary" id="new-supplier">${icon('plus')} 新增供应商</button><button class="btn" id="import-quote">${icon('upload')} 导入报价单</button></div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">SUPPLIER LIBRARY</div><h1>一次建立，日常复用</h1><p>导入商品表（30 列标准模板）维护商品池；旧格式报价单也可导入，点击上方供应商可切换查看其商品。</p></div><div class="intro-actions"><button class="btn secondary" id="new-supplier">${icon('plus')} 新增供应商</button><button class="btn secondary" id="export-pool-top">${icon('download')} 导出商品表</button><button class="btn" id="import-pool-top">${icon('upload')} 导入商品表</button></div></div>
       ${supplierRail()}
       ${OrderSeed.candidates.some(c => !state.products.find(p => p.id === c.productId)?.aliases.some(a => norm(a.name) === norm(c.name))) ? `<div class="alert info candidate-alert"><div>${icon('link')}<span><strong>样表中发现 3 条商品别名建议</strong><small>已区分儿童款与普通款。确认后才会用于订单匹配。</small></span></div><button class="btn secondary small" id="review-candidates">查看并确认</button></div>` : ''}
-      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="pool-cols">${poolColumnLabel()}</button><button class="btn ghost small" id="export-pool">导出商品池</button><button class="btn ghost small" id="import-pool">导入商品池</button><input type="file" id="pool-file" accept=".xlsx,.csv" hidden><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
+      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="pool-cols">${poolColumnLabel()}</button><input type="file" id="pool-file" accept=".xlsx,.csv" hidden><button class="btn ghost small" id="import-quote">导入报价单（旧格式）</button><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
       <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="product-search" class="search-input" value="${esc(query)}" placeholder="搜索商品名称、品牌、69码、编码" aria-label="搜索商品"></label></div><div id="products-table">${productsTable()}</div></section>`;
   }
   function visibleProducts() {
@@ -812,6 +812,8 @@
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
     $('#pool-cols')?.addEventListener('click',openColumnPicker);
+    $('#import-pool-top')?.addEventListener('click',()=>$('#pool-file').click());
+    $('#export-pool-top')?.addEventListener('click',()=>guardAsync(exportProductPool));
     $('#export-pool')?.addEventListener('click',()=>guardAsync(exportProductPool));
     $('#import-pool')?.addEventListener('click',()=>$('#pool-file').click());
     $('#pool-file')?.addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(f)poolImport(f);});
