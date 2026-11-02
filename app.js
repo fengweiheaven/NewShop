@@ -534,6 +534,108 @@
     $('#recon-recharge')?.addEventListener('click', () => rechargeModal(reconGroup, rk()));
     $('#recon-recharge-list')?.addEventListener('click', () => rechargeListModal(reconGroup, rk()));
   }
+  const POOL_FIELDS = [
+    ['category', '类别'], ['supplier', '供应商名称'], ['brand', '品牌'], ['name', '品名'], ['image', '图片'],
+    ['spec', '内容物配置'], ['netContent', '净含量'], ['groupPrice', '集采价'], ['minQty', '集采起订量'],
+    ['cost', '一件代发价格'], ['suggestPrice', '零售价'], ['shipping', '快递'], ['taxRate', '税率'],
+    ['taxCode', '税收编码'], ['internalSku', '内部编码'], ['supplierSku', '供应商编码'], ['barcode', '条码'],
+    ['shelfLife', '保质期'], ['origin', '产地'], ['shipFrom', '发货地'], ['size', '产品尺寸'],
+    ['remoteExcluded', '偏远不发'], ['link', '京东/天猫链接'], ['payAccount', '供应商付款账号'],
+    ['bankCode', '供应商开户行行号'], ['bankAccount', '供应商银行账号'], ['bankName', '供应商银行名称'],
+    ['createdAt', '建档时间'], ['status', '合作状态']
+  ];
+  const poolNorm = v => String(v == null ? '' : v).replace(/\s+/g, '').replace(/[（）()]/g, '');
+  function poolHeaderMap(headers) {
+    const map = {};
+    for (const [k, label] of POOL_FIELDS) {
+      const target = poolNorm(label);
+      let idx = headers.findIndex(h => poolNorm(h) === target);
+      if (idx < 0) idx = headers.findIndex(h => poolNorm(h) && (poolNorm(h).includes(target) || target.includes(poolNorm(h))));
+      map[k] = idx;
+    }
+    return map;
+  }
+  function supplierByName(name) {
+    return state.suppliers.find(s => norm(s.name) === norm(name));
+  }
+  async function poolImport(file) {
+    if (!file) return;
+    await guardAsync(async () => {
+      const book = await OrderExcel.read(file);
+      let si = book.sheets.findIndex(s => s.rows.some(r => (r || []).some(c => poolNorm(c) === '品名')));
+      if (si < 0) si = book.sheets.findIndex(s => s.rows.length > 2);
+      if (si < 0) si = 0;
+      const rows = book.sheets[si].rows;
+      const header = OrderExcel.detectHeader(rows);
+      const headers = rows[header] || [];
+      const map = poolHeaderMap(headers);
+      if (map.name < 0) { toast('没有找到「品名」列，请确认使用的是商品池模板。', 'warning'); return; }
+      const get = (r, k) => { const i = map[k]; if (i < 0) return ''; const v = r[i]; return v == null ? '' : String(v).trim(); };
+      const items = [];
+      for (let i = header + 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        if (!get(r, 'name')) continue;
+        items.push({ row: i + 1, raw: r });
+      }
+      if (!items.length) { toast('表里没有可导入的商品行。', 'warning'); return; }
+      const existing = items.filter(it => {
+        const sku = get(it.raw, 'internalSku');
+        const supName = get(it.raw, 'supplier');
+        if (sku && state.products.some(p => norm(p.internalSku) === norm(sku))) return true;
+        const sup = supName ? supplierByName(supName) : null;
+        const supSku = get(it.raw, 'supplierSku');
+        return !!(sup && supSku && state.products.some(p => p.supplierId === sup.id && norm(p.supplierSku) === norm(supSku)));
+      }).length;
+      const newSupNames = [...new Set(items.map(it => get(it.raw, 'supplier')).filter(Boolean))]
+        .filter(name => !supplierByName(name));
+      openModal('导入商品池', `
+        <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · 工作表「${esc(book.sheets[si].name)}」· 识别 <strong>${items.length}</strong> 条商品。</span></div>
+        <div class="stats-grid compact">${[['新增商品', items.length - existing, '按内部编码 / 供应商编码匹配不到'], ['更新商品', existing, '编码已存在，按表内数据覆盖'], ['新建供应商', newSupNames.length, newSupNames.slice(0, 3).join('、') || '无需新建']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
+        <p class="muted">匹配顺序：先按「内部编码」，再按同一供应商下的「供应商编码」；都匹配不到就新增。空单元格不会覆盖已有值。</p>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>行</th><th>品名</th><th>供应商</th><th>内部编码</th><th>一件代发价格</th></tr></thead><tbody>${items.slice(0, 6).map(it => `<tr><td class="numeric">${it.row}</td><td>${esc(get(it.raw, 'name'))}</td><td>${esc(get(it.raw, 'supplier') || '—')}</td><td class="mono">${esc(get(it.raw, 'internalSku') || '自动生成')}</td><td class="numeric">${esc(get(it.raw, 'cost') || '—')}</td></tr>`).join('')}</tbody></table></div>
+        ${items.length > 6 ? `<p class="muted">仅预览前 6 条，实际导入 ${items.length} 条。</p>` : ''}
+      `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="pool-confirm">确认导入</button>`, true);
+      $('#pool-confirm').onclick = async () => {
+        let added = 0, updated = 0, supAdded = 0;
+        for (const it of items) {
+          const r = it.raw;
+          const supName = get(r, 'supplier');
+          let sup = supName ? supplierByName(supName) : null;
+          if (supName && !sup) {
+            sup = { id: uid(), name: supName, contact: '', phone: '', note: '', template: null, derived: false, bankName: '', bankCode: '', bankAccount: '', payAccount: '' };
+            state.suppliers.push(sup);
+            supAdded++;
+          }
+          if (sup) {
+            for (const k of ['bankName', 'bankCode', 'bankAccount', 'payAccount']) {
+              const v = get(r, k === 'bankName' ? 'bankName' : k);
+              if (v) sup[k] = v;
+            }
+          }
+          const sku = get(r, 'internalSku');
+          const supSku = get(r, 'supplierSku');
+          let prod = sku ? state.products.find(p => norm(p.internalSku) === norm(sku)) : null;
+          if (!prod && sup && supSku) prod = state.products.find(p => p.supplierId === sup.id && norm(p.supplierSku) === norm(supSku));
+          if (!prod) {
+            prod = { id: uid(), internalSku: sku || nextProductSku(), name: '', spec: '', netContent: '', image: '', unit: '盒', supplierId: sup ? sup.id : '', supplierSku: supSku || sku || '', barcode: '', brand: '', category: '', cost: '', groupPrice: '', broadcastPrice: '', suggestPrice: '', marginOwn: '', marginBroadcast: '', jdPrice: '', link: '', aliases: [], note: '', shipping: '', taxRate: '', taxCode: '', shelfLife: '', origin: '', shipFrom: '', size: '', remoteExcluded: '否', status: '合作中', minQty: '', createdAt: '' };
+            state.products.push(prod);
+            added++;
+          } else updated++;
+          for (const [k] of POOL_FIELDS) {
+            if (['supplier', 'payAccount', 'bankCode', 'bankAccount', 'bankName'].includes(k)) continue;
+            const v = get(r, k);
+            if (v !== '') prod[k] = v;
+          }
+          if (sup) prod.supplierId = sup.id;
+          if (!prod.supplierSku) prod.supplierSku = prod.internalSku;
+          if (!prod.createdAt) prod.createdAt = get(r, 'createdAt') || new Date().toISOString();
+          if (!prod.status) prod.status = '合作中';
+        }
+        await save(); closeModal(); render();
+        toast(`商品池导入完成：新增 ${added} 个商品、更新 ${updated} 个${supAdded ? `，新建 ${supAdded} 个供应商` : ''}。`);
+      };
+    });
+  }
   async function exportProductPool() {
     const list = visibleProducts();
     if (!list.length) { toast('还没有商品可导出。', 'warning'); return; }
@@ -559,7 +661,7 @@
     return `<div class="page-intro"><div><div class="eyebrow">SUPPLIER LIBRARY</div><h1>一次建立，日常复用</h1><p>导入供应商报价单，自动识别商品与供应商；点击上方供应商即可切换查看其商品。</p></div><div class="intro-actions"><button class="btn secondary" id="new-supplier">${icon('plus')} 新增供应商</button><button class="btn" id="import-quote">${icon('upload')} 导入报价单</button></div></div>
       ${supplierRail()}
       ${OrderSeed.candidates.some(c => !state.products.find(p => p.id === c.productId)?.aliases.some(a => norm(a.name) === norm(c.name))) ? `<div class="alert info candidate-alert"><div>${icon('link')}<span><strong>样表中发现 3 条商品别名建议</strong><small>已区分儿童款与普通款。确认后才会用于订单匹配。</small></span></div><button class="btn secondary small" id="review-candidates">查看并确认</button></div>` : ''}
-      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="export-pool">导出商品池</button><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
+      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="export-pool">导出商品池</button><button class="btn ghost small" id="import-pool">导入商品池</button><input type="file" id="pool-file" accept=".xlsx,.csv" hidden><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
       <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="product-search" class="search-input" value="${esc(query)}" placeholder="搜索商品名称、品牌、69码、编码" aria-label="搜索商品"></label></div><div id="products-table">${productsTable()}</div></section>`;
   }
   function visibleProducts() {
@@ -631,6 +733,8 @@
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
     $('#export-pool')?.addEventListener('click',()=>guardAsync(exportProductPool));
+    $('#import-pool')?.addEventListener('click',()=>$('#pool-file').click());
+    $('#pool-file')?.addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(f)poolImport(f);});
     $('#import-catalog')?.addEventListener('click',()=>$('#catalog-file').click());
     $('#catalog-file')?.addEventListener('change',e=>catalogImport(e.target.files[0]));
     $$('[data-template]').forEach(b=>b.onclick=()=>templateModal(b.dataset.template));
