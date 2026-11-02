@@ -67,7 +67,7 @@
     { name: '和世嘉', sheetName: 'sheet1', columns: [['<必填>订单号', 'orderNo', '', true], ['下单时间', 'date'], ['付款时间', 'paidAt'], ['备注', 'remark'], ['买家留言', 'buyerMessage'], ['运费', 'freight'], ['<必填>实付总额', 'paidAmount', '', true], ['<必填>收货人', 'recipient', '', true], ['手机', 'phone'], ['<必填>地址', 'address', '', true], ['快递', 'carrier'], ['邮编', 'postcode'], ['货到付款', 'cod'], ['代收金额', 'codAmount'], ['<必填>商品编码', 'supplierSku', '', true], ['商品名称', 'productName'], ['规格名称', 'spec'], ['数量', 'quantity'], ['<必填>单价', 'unitPrice', '', true], ['<必填>实付', 'amount', '', true]] }
   ].map(t => Object.assign({}, t, { columns: t.columns.map(c => ({ header: c[0], field: c[1], fallback: c[2] || '', required: !!c[3] })) }));
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
-  let state, db, view='import', filter='all', dateFilter='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
+  let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
   const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],recharges:[],profiles:{},unified:null,history:[]});
   const pById = id => state.products.find(p=>p.id===id);
   const sById = id => state.suppliers.find(s=>s.id===id);
@@ -1373,8 +1373,10 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     for (const [key, , aliases] of SHIPMENT_FIELDS) out[key] = matchColumn(headers || [], aliases);
     return out;
   }
+  function exportDateOf(r){if(!r.exportedAt)return '';const t=new Date(r.exportedAt);return isNaN(t.getTime())?'':dateKey(t);}
+  function shipmentDateOptions(){const m=new Map();for(const r of activeRows()){if(!r.exportedAt)continue;const d=exportDateOf(r);if(d)m.set(d,(m.get(d)||0)+1);}return [...m.entries()].sort((a,b)=>a[0]<b[0]?1:-1);}
   function shipmentOrders() {
-    return activeRows().filter(r => !r.excluded && r.exportedAt && String(r.orderNo || '').trim());
+    return activeRows().filter(r => !r.excluded && r.exportedAt && String(r.orderNo || '').trim() && inDateFilter(exportDateOf(r), shipmentDate));
   }
   function shipmentMatch(rows, map) {
     const cell = (row, key) => { const i = map[key]; return i == null || i < 0 ? '' : String(row?.[i] ?? '').trim(); };
@@ -1477,10 +1479,10 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   function renderShipment() {
     const st = shipmentStats();
     const hasOrders = shipmentOrders().length > 0;
-    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>只处理已按供应商格式导出过的订单：上传带快递单号的表，按收货人/电话匹配，把订单号写回同一张表再下载。</p></div><div class="intro-actions">${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>只处理已按供应商格式导出的订单，默认只看今天导出的：上传带快递单号的表，按收货人/电话匹配，把单号写回同一张表再下载。</p></div><div class="intro-actions">${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
       ${(() => { const exp = shipmentOrders(); const filled = exp.filter(o => String(o.trackingNo || '').trim()).length; return `<div class="stats-grid">${[['box','已导出订单',exp.length,'按供应商格式导出过的明细'],['check','已回填单号',filled,'订单上已有快递单号'],['clock','待回填',exp.length - filled,'还没写回单号']].map(([ic,l,v,n]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`; })()}
       ${!hasOrders ? `<div class="alert warning">${icon('shield')}<span>还没有已导出的订单。先到「订单采集与匹配」把订单匹配好，再点「按供应商导出 → 导出 Excel」，导出的明细才会出现在这里。</span></div>` : ''}
-      <section class="card"><div class="card-header"><div><h2>上传快递单号表</h2><p class="muted">支持 .xlsx / UTF-8 CSV；原表列结构保持不动，只在订单号列写入值。</p></div></div><div class="card-body"><div class="dropzone" id="shipment-drop" tabindex="0" role="button" aria-label="选择或拖入快递单号表"><div class="upload-icon">${icon('upload')}</div><h3>拖入快递单号表，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB</p><span class="drop-hint">自动识别收货人、电话、地址、快递单号</span></div><input id="shipment-file" type="file" accept=".xlsx,.csv" hidden></div></section>
+      <section class="card"><div class="card-header"><div><h2>上传快递单号表</h2><p class="muted">支持 .xlsx / UTF-8 CSV；原表列结构保持不动，只在订单号列写入值。</p></div><label class="date-filter"><span>导出日期</span><select id="shipment-date"><option value="all">全部（${activeRows().filter(r=>r.exportedAt&&!r.excluded).length}）</option>${DATE_RANGES.map(([k,label])=>`<option value="${k}" ${shipmentDate===k?'selected':''}>${label} ${rangeText(k)}（${activeRows().filter(r=>r.exportedAt&&!r.excluded&&inDateFilter(exportDateOf(r),k)).length}）</option>`).join('')}<option value="----" disabled>──────</option>${shipmentDateOptions().map(([d,n])=>`<option value="${esc(d)}" ${shipmentDate===d?'selected':''}>${esc(d)}（${n}）</option>`).join('')}</select></label></div><div class="card-body"><div class="dropzone" id="shipment-drop" tabindex="0" role="button" aria-label="选择或拖入快递单号表"><div class="upload-icon">${icon('upload')}</div><h3>拖入快递单号表，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB</p><span class="drop-hint">自动识别收货人、电话、地址、快递单号</span></div><input id="shipment-file" type="file" accept=".xlsx,.csv" hidden></div></section>
       ${shipment ? `<section class="card"><div class="card-header"><div><h2>${esc(shipment.name)}</h2><p class="muted">${esc(shipment.sheetName)} · 共 ${st.total} 行 · 匹配 ${st.matched} · 未匹配 ${st.missing}</p></div><div class="intro-actions"><span class="pill ${st.missing ? 'warning' : 'success'}">${st.missing ? `${st.missing} 行未匹配` : '全部匹配'}</span><button class="btn ghost small" id="shipment-remap">调整列对应</button></div></div>
         ${st.missing ? `<div class="alert warning">${icon('shield')}<span>${st.missing} 行没有匹配到订单号，下载后这些行的订单号列会是空的；可在表格里按收货人/电话人工补。</span></div>` : ''}
         <div class="table-wrap"><table class="data-table"><thead><tr><th>收货人</th><th>电话</th><th>快递单号</th><th>商品</th><th>订单号</th><th>匹配依据</th></tr></thead><tbody>${shipmentPreviewRows().map(m => `<tr><td>${esc(m.recipient || '—')}</td><td class="mono">${esc(m.phone || '—')}</td><td class="mono">${esc(m.tracking || '—')}</td><td class="product-cell">${esc(String(m.product || '').slice(0, 30) || '—')}</td><td class="mono">${m.orderNo ? esc(m.orderNo) : '<span class="muted">未匹配</span>'}</td><td>${m.how ? esc(m.how) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
@@ -1517,6 +1519,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     }
     $('#shipment-file')?.addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; openShipment(f); });
     $('#shipment-download')?.addEventListener('click', () => guardAsync(exportShipment));
+    $('#shipment-date')?.addEventListener('change',e=>{shipmentDate=e.target.value;render();});
     $('#shipment-reset')?.addEventListener('click', () => { shipment = null; render(); });
     $('#shipment-remap')?.addEventListener('click', () => { toast('重新上传同一份表即可重选列。', 'warning'); $('#shipment-file').click(); });
   }
