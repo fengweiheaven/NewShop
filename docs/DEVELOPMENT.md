@@ -480,6 +480,16 @@ python -m http.server 8765 --directory dist
 - 云开发 SDK 按需从 CDN 动态加载（`cloudbase.full.js`），本地模式不加载，不增加离线负担。
 - 待接入：登录页与角色控制（`auth.js`）、按角色的字段遮挡、`audit_logs` 写入、首次云端初始化脚本。
 
+## 10.2 联网模式（腾讯云开发 CloudBase）
+
+- 环境：`orderflow-prod-d2g6wsnki20b1a559`（上海），数据库为 PostgreSQL（SQL 型，带 RLS）。
+- 前端初始化：`cloudbase.init({ env, region, accessKey })`，`accessKey` 是控制台的 **Publishable Key**；服务端 API Key 不得进浏览器。
+- 登录：`app.auth().signInWithPassword({ username, password })`，用户名即手机号；未登录时数据请求返回 `INVALID_CREDENTIALS`。
+- 数据访问：`app.rdb().from('workspaces').select('*').eq('id','main')`，写入用 `update(...).eq('rev', 上次版本)` 做乐观锁，冲突时提示「数据已被他人修改」。
+- 表结构：`workspaces(id, data jsonb, rev, updated_at, updated_by)`、`app_users(uid, name, phone, role, active)`、`audit_logs(uid, action, detail, at)`；三张表均需 `enable row level security` 并给 `authenticated` 建 Policy，否则前端读回空数据。
+- 配置：`config.js` 提交占位；真实 Key 放 `config.local.js`（已 gitignore），缺省时自动回落到 local 模式。
+- SDK：`dist/vendor/cloudbase.iife.js`（由 @cloudbase/js-sdk 3.10.4 用 esbuild 打包成 IIFE，暴露 `window.cloudbase`）；官方 CDN 路径已失效，勿改回外链。
+
 ## 11. Excel 引擎接口与规则
 
 ### 11.1 `OrderExcel` 接口

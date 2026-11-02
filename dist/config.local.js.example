@@ -1,0 +1,11 @@
+/* 本地私有配置（不要提交到仓库）：
+ * 1) 复制本文件为 config.local.js
+ * 2) 填入 Publishable Key
+ * index.html 会自动加载 config.local.js（不存在时忽略）。
+ */
+window.ORDERFLOW_CONFIG = Object.assign({}, window.ORDERFLOW_CONFIG, {
+  mode: 'cloudbase',
+  envId: 'orderflow-prod-d2g6wsnki20b1a559',
+  region: 'ap-shanghai',
+  accessKey: ''
+});

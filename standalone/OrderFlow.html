@@ -78,6 +78,25 @@
 
 /* 余额提醒 */
 .data-table .neg{color:var(--danger);font-weight:600}
+
+/* 登录门 */
+body.auth-locked{overflow:hidden}
+body.auth-locked .shell{filter:blur(3px);pointer-events:none}
+#auth-gate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px)}
+.auth-card{width:380px;max-width:92vw;background:#fff;border-radius:18px;padding:28px 26px;box-shadow:0 24px 60px rgba(15,23,42,.28);display:flex;flex-direction:column;gap:12px}
+.auth-brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.auth-brand .brand-mark{width:38px;height:38px;border-radius:12px;background:var(--brand,#0f766e);color:#fff;display:grid;place-items:center;font-weight:700;font-size:18px}
+.auth-brand strong{display:block;font-size:16px}
+.auth-brand small{color:#64748b;font-size:12px}
+.auth-card h2{margin:2px 0 0;font-size:20px}
+.auth-card .muted{margin:0;color:#64748b;font-size:13px}
+.auth-card .field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#334155}
+.auth-card .field input{padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px}
+.auth-card .field input:focus{outline:2px solid rgba(13,148,136,.35);border-color:#0d9488}
+.auth-card .form-error{min-height:18px;margin:0;color:#dc2626;font-size:12px}
+.auth-card .btn{width:100%;justify-content:center}
+.auth-card .btn[disabled]{opacity:.65;cursor:progress}
+.auth-foot{margin:0;text-align:center;color:#94a3b8;font-size:12px}
 </style>
   <script>/*!
 
@@ -675,20 +694,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 })();
 </script>
   <script>/* OrderFlow 运行配置。
- * mode: 'local'     —— 单机模式，数据存浏览器 IndexedDB（默认，行为与之前一致）
- *       'cloudbase' —— 联网模式，数据存腾讯云开发 CloudBase，需要填 envId
- * 修改后刷新页面即可生效。
+ * mode: 'local'     —— 单机模式，数据存浏览器 IndexedDB（默认）
+ *       'cloudbase' —— 联网模式，数据存腾讯云开发 CloudBase
+ * 修改后刷新页面即可生效。云端模式需要 envId（环境 ID）与 accessKey（Publishable Key）。
  */
 window.ORDERFLOW_CONFIG = {
   mode: 'local',
-  envId: '',
+  envId: 'orderflow-prod-d2g6wsnki20b1a559',
+  region: 'ap-shanghai',
+  accessKey: '',
   collection: 'workspaces',
   docId: 'main'
-};
-</script>
+};</script>
   <script>/* OrderFlow store —— 存储适配层。
- * 本地模式用 IndexedDB（与旧版行为一致）；云端模式接腾讯云开发 CloudBase。
- * 通过 window.ORDERFLOW_CONFIG 切换：{ mode: 'local' | 'cloudbase', envId: '...' }。
+ * local：IndexedDB；cloudbase：腾讯云开发 PostgreSQL（workspaces 表 + rev 乐观锁）。
+ * 配置见 config.js / config.local.js。
  */
 (function () {
   'use strict';
@@ -697,13 +717,9 @@ window.ORDERFLOW_CONFIG = {
   const DB_NAME = 'orderflow-workbench-v1';
   const STORE_NAME = 'workspace';
   const KEY = 'state';
-  const SDK_URL = 'https://static.cloudbase.net/cloudbase-js-sdk/2.7.1/cloudbase.full.js';
 
   let dbPromise = null;
-  let appPromise = null;
   let lastRev = 0;
-  let watchStarted = false;
-  const listeners = new Set();
 
   function openDb() {
     if (dbPromise) return dbPromise;
@@ -737,93 +753,182 @@ window.ORDERFLOW_CONFIG = {
     });
   }
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector('script[data-orderflow-sdk]')) return resolve();
-      const el = document.createElement('script');
-      el.src = src;
-      el.async = true;
-      el.dataset.orderflowSdk = '1';
-      el.onload = resolve;
-      el.onerror = () => reject(new Error('云开发 SDK 加载失败，请检查网络。'));
-      document.head.append(el);
-    });
+  function sql() {
+    const app = window.OrderAuth && window.OrderAuth.app;
+    if (!app) throw new Error('尚未登录，无法访问云端数据。');
+    return app.rdb();
   }
 
-  async function cloudApp() {
-    if (appPromise) return appPromise;
-    if (!CFG.envId) throw new Error('缺少 CloudBase 环境 ID（ORDERFLOW_CONFIG.envId）。');
-    appPromise = (async () => {
-      if (!window.cloudbase) await loadScript(SDK_URL);
-      if (!window.cloudbase) throw new Error('云开发 SDK 不可用。');
-      return window.cloudbase.init({ env: CFG.envId });
-    })();
-    return appPromise;
-  }
-
-  async function cloudAuth() {
-    const app = await cloudApp();
-    const auth = app.auth({ persistence: 'local' });
-    if (!auth.hasLoginState || !(await auth.hasLoginState())) throw new Error('未登录');
-    return auth;
+  function uid() {
+    const u = window.OrderAuth && window.OrderAuth.user;
+    return (u && u.uid) || '';
   }
 
   async function cloudLoad() {
-    const app = await cloudApp();
-    await cloudAuth();
-    const res = await app.database().collection(CFG.collection).doc(CFG.docId).get();
-    const doc = res && res.data && res.data[0];
-    if (!doc) return null;
-    lastRev = Number(doc.rev) || 0;
-    return { state: doc.data, rev: lastRev, source: 'cloudbase' };
+    const { data, error } = await sql().from(CFG.collection).select('*').eq('id', CFG.docId).limit(1);
+    if (error) throw new Error(error.message || '读取云端数据失败。');
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) return null;
+    lastRev = Number(row.rev) || 0;
+    return { state: row.data, rev: lastRev, source: 'cloudbase' };
   }
 
   async function cloudSave(state) {
-    const app = await cloudApp();
-    await cloudAuth();
-    const col = app.database().collection(CFG.collection);
-    const rev = lastRev + 1;
-    const payload = { data: state, rev, updatedAt: new Date().toISOString(), updatedBy: (app.auth().currentUser || {}).uid || '' };
+    const db = sql();
+    const payload = {
+      data: state,
+      rev: lastRev + 1,
+      updated_at: new Date().toISOString(),
+      updated_by: uid()
+    };
     if (lastRev === 0) {
-      await col.add(Object.assign({ _id: CFG.docId }, payload));
+      const { error } = await db.from(CFG.collection).upsert(Object.assign({ id: CFG.docId }, payload));
+      if (error) throw new Error(error.message || '保存失败。');
     } else {
-      const res = await col.where({ _id: CFG.docId, rev: lastRev }).update(payload);
-      const updated = (res && (res.updated || res.stats && res.stats.updated)) || 0;
-      if (!updated) throw new Error('数据已被他人修改，请刷新后重试。');
+      const { data, error } = await db.from(CFG.collection).update(payload).eq('id', CFG.docId).eq('rev', lastRev).select();
+      if (error) throw new Error(error.message || '保存失败。');
+      if (!data || !data.length) throw new Error('数据已被他人修改，请刷新后重试。');
     }
-    lastRev = rev;
+    lastRev += 1;
+    try {
+      await db.from('audit_logs').insert({ uid: uid(), action: 'save', detail: { orders: (state.orders || []).length, rev: lastRev } });
+    } catch (_) { }
   }
 
   const OrderStore = {
     get mode() { return CFG.mode; },
     get envId() { return CFG.envId; },
     get rev() { return lastRev; },
-    get available() { return true; },
     async load() { return CFG.mode === 'cloudbase' ? cloudLoad() : localLoad(); },
-    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); },
-    onExternalChange(cb) { listeners.add(cb); },
-    async startWatch() {
-      if (watchStarted || CFG.mode !== 'cloudbase') return;
-      watchStarted = true;
-      try {
-        const app = await cloudApp();
-        await cloudAuth();
-        app.database().collection(CFG.collection).doc(CFG.docId).watch({
-          onChange: snap => {
-            const doc = snap && snap.docs && snap.docs[0];
-            if (!doc || !doc.data) return;
-            const rev = Number(doc.rev) || 0;
-            if (rev <= lastRev) return;
-            lastRev = rev;
-            listeners.forEach(cb => { try { cb(doc.data, rev); } catch (_) {} });
-          },
-          onError: () => {}
-        });
-      } catch (_) { watchStarted = false; }
-    }
+    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); }
   };
 
   window.OrderStore = OrderStore;
+})();
+</script>
+  <script>/* OrderFlow auth —— 登录门与角色。
+ * 本地模式不启用登录；云端模式在页面加载后要求先登录（用户名 = 手机号）。
+ */
+(function () {
+  'use strict';
+
+  const CFG = window.ORDERFLOW_CONFIG || {};
+  const cloudMode = CFG.mode === 'cloudbase';
+  const state = { app: null, auth: null, user: null, role: '', ready: null };
+  let resolveReady;
+  state.ready = new Promise(res => { resolveReady = res; });
+
+  function loadSdk() {
+    if (window.cloudbase) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'vendor/cloudbase.iife.js';
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('云开发 SDK 加载失败'));
+      document.head.append(el);
+    });
+  }
+
+  async function ensureApp() {
+    if (state.app) return state.app;
+    await loadSdk();
+    state.app = window.cloudbase.init({ env: CFG.envId, region: CFG.region, accessKey: CFG.accessKey });
+    state.auth = state.app.auth();
+    return state.app;
+  }
+
+  function currentUser() {
+    try {
+      const s = state.auth && state.auth.hasLoginState && state.auth.hasLoginState();
+      return (s && (s.user || s)) || state.user || null;
+    } catch (_) { return state.user || null; }
+  }
+
+  async function loadRole() {
+    const user = currentUser();
+    if (!user || !user.uid) return '';
+    try {
+      const { data } = await state.app.rdb().from('app_users').select('*').eq('uid', user.uid).limit(1);
+      const row = Array.isArray(data) && data[0];
+      return row ? row.role : '';
+    } catch (_) { return ''; }
+  }
+
+  function renderGate(message) {
+    let gate = document.getElementById('auth-gate');
+    if (!gate) {
+      gate = document.createElement('div');
+      gate.id = 'auth-gate';
+      document.body.append(gate);
+    }
+    gate.innerHTML = `
+      <form class="auth-card" id="auth-form" autocomplete="on">
+        <div class="auth-brand"><span class="brand-mark">序</span><div><strong>序单</strong><small>商贸订单工作台</small></div></div>
+        <h2>登录</h2>
+        <p class="muted">用管理员分配的手机号与密码登录。</p>
+        <label class="field"><span>手机号</span><input name="username" inputmode="tel" autocomplete="username" required placeholder="11 位手机号"></label>
+        <label class="field"><span>密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="密码"></label>
+        <p class="form-error" id="auth-error">${message || ''}</p>
+        <button class="btn" type="submit" id="auth-submit">登录</button>
+        <p class="auth-foot">账号由管理员在云开发控制台创建</p>
+      </form>`;
+    document.body.classList.add('auth-locked');
+    const form = document.getElementById('auth-form');
+    const err = document.getElementById('auth-error');
+    const btn = document.getElementById('auth-submit');
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(form);
+      const username = String(f.get('username') || '').trim();
+      const password = String(f.get('password') || '');
+      if (!username || !password) { err.textContent = '请填写手机号和密码。'; return; }
+      btn.disabled = true; btn.textContent = '登录中…'; err.textContent = '';
+      try {
+        const res = await state.auth.signInWithPassword({ username, password });
+        if (res && res.error) throw new Error(res.error.message || '登录失败');
+        state.user = currentUser();
+        state.role = await loadRole();
+        document.body.classList.remove('auth-locked');
+        gate.remove();
+        resolveReady({ user: state.user, role: state.role });
+      } catch (e) {
+        err.textContent = (e && (e.message || e.error_description)) || '登录失败，请检查手机号和密码。';
+        btn.disabled = false; btn.textContent = '登录';
+      }
+    };
+    form.querySelector('[name=username]')?.focus();
+  }
+
+  async function start() {
+    if (!cloudMode) { resolveReady({ user: null, role: 'local' }); return; }
+    try {
+      await ensureApp();
+      const user = currentUser();
+      if (user && user.uid) {
+        state.user = user;
+        state.role = await loadRole();
+        resolveReady({ user, role: state.role });
+        return;
+      }
+      renderGate('');
+    } catch (e) {
+      renderGate((e && e.message) || '初始化失败');
+    }
+  }
+
+  window.OrderAuth = {
+    get mode() { return cloudMode ? 'cloudbase' : 'local'; },
+    get user() { return currentUser(); },
+    get role() { return state.role; },
+    ready: state.ready,
+    async signOut() {
+      try { await state.auth.signOut(); } catch (_) { }
+      location.reload();
+    }
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();
 </script>
   <script>/* OrderFlow — browser-local trade order workspace. */
@@ -1909,7 +2014,8 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   }
   async function loadDemo(){if(state.batches.some(b=>b.demo)){toast('演示数据已经载入，可在“管理导入批次”中删除。','warning');return;}const add=async()=>{const id=uid();state.batches.push({id,name:'演示订单（模拟数据）.xlsx',customer:'演示客户',hash:'demo-'+id,demo:true,createdAt:new Date().toISOString()});for(let i=0;i<6;i++){const c=OrderSeed.candidates[i<2?0:i<5?1:2];state.orders.push({id:uid(),batchId:id,customer:c.customer,orderNo:'DEMO-'+String(i+1).padStart(4,'0'),productName:c.name,sourceSku:c.sourceSku||'',sourceSpec:c.customer==='GBH'?'早餐代餐':'',sourceLineId:'demo-'+i,quantity:1,recipient:'模拟收件人'+(i+1),phone:'1380000000'+i,address:'示例省示例市示例区演示路'+(i+1)+'号（模拟地址）',buyerNickname:'',remark:'模拟数据，请勿实际发货',date:stamp(),unitPrice:'',sourceFile:'演示订单（模拟数据）.xlsx',sourceSheet:'模拟数据',sourceRow:i+2,excluded:false,manual:false,raw:{说明:'模拟数据，请勿实际发货'}});}includeNewBatch(id);invalidate();await save();render();toast('已载入6条模拟订单，请确认商品映射。');};if(activeRows().length)confirmDialog('加入演示订单','将新增6条模拟订单，可在批次管理中删除。本次选中的批次会一同参与后续生成。',add);else await add();}
   window.OrderFlow={getState:()=>copy(state),status,summary,findProducts,validateBackup,exportIssues,templateValue,UNIFIED,autoMap,activeRows,duplicateKey};
-  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  const boot=()=>{ if (window.OrderAuth && window.OrderAuth.ready) window.OrderAuth.ready.then(() => init()); else init(); };
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',boot):boot();
 })();
 </script>
 </head>
