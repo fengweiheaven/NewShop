@@ -170,3 +170,18 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .workspace-grid .dropzone h3{margin:0;font-size:13px}
 .workspace-grid .dropzone p{margin:0;font-size:10px;line-height:1.6}
 .order-panel .empty-state{padding:34px 20px}
+
+/* 导入区折叠态 */
+.import-collapsed{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 4px;color:#64748b;font-size:12px}
+.import-collapsed strong{color:#0f172a}
+
+/* 右侧供应商格式卡吸顶 */
+@media(min-width:761px){
+  .workspace-grid{align-items:start}
+  .workspace-grid>.quick-guide{position:sticky;top:92px}
+}
+
+/* 订单明细表头吸顶 + 内部滚动 */
+.order-panel .table-wrap{max-height:calc(100vh - 300px);overflow:auto}
+.order-panel .data-table thead th{position:sticky;top:0;z-index:3;background:#f8fafb;box-shadow:inset 0 -1px 0 var(--line)}
+.order-panel .data-table thead th.sticky-action{z-index:4}
