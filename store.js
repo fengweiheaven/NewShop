@@ -79,7 +79,7 @@
     } else {
       const { data, error } = await db.from(CFG.collection).update(payload).eq('id', CFG.docId).eq('rev', lastRev).select();
       if (error) throw new Error(error.message || '保存失败。');
-      if (!data || !data.length) throw new Error('数据已被他人修改，请刷新后重试。');
+      if (!data || !data.length) { const err = new Error('数据已被他人修改，请刷新后重试。'); err.conflict = true; throw err; }
     }
     lastRev += 1;
     try {
