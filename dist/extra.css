@@ -107,3 +107,9 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .user-menu-item.plain:hover{background:#f1f5f9}
 
 .user-menu-version{font-size:11px;color:#94a3b8;padding:0 8px 6px}
+
+/* 商品池表格：列多，压缩显示 */
+.pool-table{font-size:12px}
+.pool-table th,.pool-table td{white-space:nowrap;padding:8px 10px}
+.pool-table td{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.pool-table .product-cell{max-width:220px}
