@@ -47,7 +47,8 @@
     ['recipient','收货人',['收货人/提货人','收货人','收件人','收货姓名','收件姓名','收货人姓名','收件人姓名']],
     ['phone','收货电话',['收货人手机号/提货人手机号','收货电话','收货人电话','收件人手机','收货人手机号','手机号','联系电话','电话','手机','收货手机','收货人手机','收件人手机号','联系方式']],
     ['address','详细地址',['收货地址/提货地址','收货地址','详细地址','收件地址','地址','收货人地址','收件人地址','地址包含省市区','收货详细地址']],
-    ['sourceSku','客户商品编码',['SKU码','SKU编码','商品编码','产品编码','货品编码','商家编码','sku','条码','69码','商品条码']],
+    ['sourceSku','客户商品编码',['SKU码','SKU编码','商品编码','产品编码','货品编码','商家编码','sku']],
+    ['barcode','69码 / 条码',['69码','条码','商品条码','条形码','国际条码','EAN','UPC']],
     ['sourceSpec','来源规格',['规格属性','商品规格','规格','产品规格','商品规格信息','规格信息','颜色及规格','属性']],
     ['sourceLineId','订单明细ID',['订单商品编号','订单明细编号','子订单编号','明细编号']],
     ['buyerNickname','买家昵称',['买家昵称','买家账号','客户昵称']],
@@ -82,7 +83,7 @@
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
     for(const c of v.customers)for(const k of ['companyName','creditCode','companyAddress','contact','phone','bankName','bankBranch','bankCode','bankAccount','license','businessScope'])if(c[k]===undefined)c[k]='';
-    for(const o of v.orders){if(o.carrier===undefined)o.carrier='';if(o.trackingNo===undefined)o.trackingNo='';if(o.invoiced===undefined)o.invoiced=false;
+    for(const o of v.orders){if(o.carrier===undefined)o.carrier='';if(o.trackingNo===undefined)o.trackingNo='';if(o.barcode===undefined)o.barcode='';if(o.invoiced===undefined)o.invoiced=false;
     for(const k of ['paidAt','buyerMessage','freight','paidAmount','postcode','cod','codAmount','productType','erpCode'])if(o[k]===undefined)o[k]='';}
     if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
     for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
@@ -157,12 +158,39 @@
   function confirmDialog(title,text,action){openModal(title,`<p>${esc(text)}</p>`,`<button class="btn secondary" data-cancel>取消</button><button class="btn ${/删除|清空/.test(title)?'danger':''}" id="confirm-action">${/删除/.test(title)?'确认删除':'确认'}</button>`);$('#confirm-action').onclick=async()=>{closeModal();await action();};}
   function field(label,name,value='',options={}){return `<label class="field ${options.full?'full':''}"><span>${esc(label)}${options.required?' <i class="req" aria-hidden="true">*</i>':''}</span>${options.textarea?`<textarea name="${name}" rows="${options.rows||3}" ${options.required?'required':''}>${esc(value)}</textarea>`:`<input name="${name}" value="${esc(value)}" ${options.required?'required':''} ${options.type?`type="${options.type}"`:''} ${options.placeholder?`placeholder="${esc(options.placeholder)}"`:''}>`}${options.hint?`<small>${esc(options.hint)}</small>`:''}</label>`;}
   function selectField(label,name,options,value='',full=false){return `<label class="field ${full?'full':''}"><span>${esc(label)}</span><select name="${name}">${options.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(value)?'selected':''}>${esc(l)}</option>`).join('')}</select></label>`;}
-  function findProducts(row) {
-    const name=norm(row.productName),code=norm(row.sourceSku),spec=norm(row.sourceSpec);
-    return state.products.filter(p=>{
-      if(name && norm(p.name)===name && (!spec||!p.spec||!/(\d+)枚/.test(spec)||norm(p.spec)===spec))return true;
-      return p.aliases.some(a=>(!a.customer||norm(a.customer)===norm(row.customer))&&(!a.spec||norm(a.spec)===spec)&&((a.code&&code&&norm(a.code)===code)||(!a.code&&a.name&&norm(a.name)===name)));
-    });
+    function normCode(v){return String(v==null?'':v).replace(/\D/g,'');}
+  function isBarcodeLike(v){const d=normCode(v);return d.length>=8&&d.length<=14;}
+  function bigrams(s){const out=[];for(let i=0;i<s.length-1;i++)out.push(s.slice(i,i+2));return out;}
+  function diceSim(a,b){if(!a||!b)return 0;if(a===b)return 1;const A=bigrams(a),B=bigrams(b);if(!A.length||!B.length)return 0;const m=new Map();for(const g of A)m.set(g,(m.get(g)||0)+1);let inter=0;for(const g of B){const c=m.get(g)||0;if(c){inter++;m.set(g,c-1);}}return (2*inter)/(A.length+B.length);}
+  function matchProducts(row){
+    const bc=normCode(row.barcode)||(isBarcodeLike(row.sourceSku)?normCode(row.sourceSku):'');
+    if(bc){const hits=state.products.filter(p=>normCode(p.barcode)===bc);if(hits.length===1)return{product:hits[0],via:'barcode'};if(hits.length>1)return{candidates:hits,via:'barcode'};}
+    const code=norm(row.sourceSku);
+    const aliasHits=state.products.filter(p=>p.aliases.some(a=>(!a.customer||norm(a.customer)===norm(row.customer))&&(!a.spec||norm(a.spec)===norm(row.sourceSpec))&&((a.code&&code&&norm(a.code)===code)||(!a.code&&a.name&&norm(a.name)===norm(row.productName)))));
+    if(aliasHits.length===1)return{product:aliasHits[0],via:'alias'};
+    if(aliasHits.length>1)return{candidates:aliasHits,via:'alias'};
+    const rowName=norm(row.productName),rowSpec=norm(row.sourceSpec);
+    if(!rowName)return{};
+    const scored=[];
+    for(const p of state.products){
+      const pName=norm(p.name),pSpec=norm(p.spec);
+      if(!pName)continue;
+      if(rowSpec&&pSpec&&rowSpec!==pSpec)continue;
+      if(rowSpec&&!pSpec)continue;
+      let score=0;
+      if(pName===rowName)score=100;
+      else if(rowSpec&&pSpec){if(pName.includes(rowName)||rowName.includes(pName))score=85;else{const d=diceSim(pName,rowName);if(d>=0.55)score=Math.round(40+d*40);}}
+      if(score>0)scored.push({p,score});
+    }
+    if(!scored.length)return{};
+    scored.sort((a,b)=>b.score-a.score);
+    const top=scored[0].score;
+    const best=scored.filter(x=>x.score===top).map(x=>x.p);
+    return best.length===1?{product:best[0],via:'name'}:{candidates:best,via:'name'};
+  }
+  function findProducts(row){
+    const m=matchProducts(row);
+    return m.product?[m.product]:(m.candidates||[]);
   }
   function suggestion(row){
     const c=OrderSeed.candidates.find(c=>norm(c.name)===norm(row.productName)&&(!c.sourceSku||norm(c.sourceSku)===norm(row.sourceSku)));
@@ -1096,7 +1124,7 @@
         $('#delete-order')?.addEventListener('click',()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{closeModal();await deleteOrders([row.id],'已删除 1 条明细。');}));
 $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const product=pById(f.get('productId'));const excluded=f.has('excluded');if(!excluded&&!product){$('#order-error').textContent='请选择标准商品，或将本行排除。';return;}const keys=['orderNo','customer','productName','sourceSpec','sourceSku','recipient','phone','buyerNickname','address','remark'];keys.forEach(k=>row[k]=String(f.get(k)||'').trim());row.phone=normalizePhone(row.phone);ensureCustomer(row.customer);row.quantity=Number(f.get('quantity'));row.excluded=excluded;row.productId=product?.id||'';row.manual=!!product;delete row.exportedAt;
       resolveDuplicateChoice(row,f.has('independent'));
-      if(product&&f.has('remember')&&!excluded){const alias={customer:row.customer,name:row.productName,spec:row.sourceSpec,code:''};if(!product.aliases.some(a=>JSON.stringify(a)===JSON.stringify(alias)))product.aliases.push(alias);}
+      if(product&&!excluded&&row.productName){const auto=matchProducts({customer:row.customer,productName:row.productName,sourceSpec:row.sourceSpec,sourceSku:row.sourceSku,barcode:row.barcode});if(!auto.product||auto.product.id!==product.id){const alias={customer:row.customer,name:row.productName,spec:row.sourceSpec,code:''};if(!product.aliases.some(a=>norm(a.customer)===norm(alias.customer)&&norm(a.name)===norm(alias.name)&&norm(a.spec||'')===norm(alias.spec||'')))product.aliases.push(alias);}}
       refreshBatchExportFlags();invalidate();history('确认订单映射与字段');await save();closeModal();render();toast('已保存，匹配状态已更新。');};
   }
   function supplierModal(id){const s=copy(sById(id)||{id:uid(),name:'',contact:'',phone:'',note:'',template:null,bankName:'',bankCode:'',bankAccount:'',payAccount:''});openModal(id?'编辑供应商':'新增供应商',`<form id="supplier-form"><div class="form-grid">${field('供应商名称','name',s.name,{required:true,full:true})}${field('联系人','contact',s.contact)}${field('联系电话','phone',s.phone)}${field('供应商银行名称','bankName',s.bankName||'')}${field('供应商开户行行号','bankCode',s.bankCode||'')}${field('供应商银行账号','bankAccount',s.bankAccount||'')}${field('供应商付款账号','payAccount',s.payAccount||'',{hint:'默认与银行账号相同'})}${field('备注 / 供应商主体信息','note',s.note,{textarea:true,full:true})}</div><p id="supplier-error" class="form-error"></p></form>`,`<button class="btn secondary" data-cancel>取消</button>${id?'<button class="btn danger" id="delete-supplier">删除供应商</button>':''}<button class="btn" id="save-supplier">保存供应商</button>`);
