@@ -1,0 +1,174 @@
+/* 丰涵代发订单管理平台 · 主题（更精致的配色与字体）
+ * 只改视觉，不动布局与交互；在 extra.css 之后加载，用变量与少量覆盖生效。
+ */
+
+:root {
+  --navy: #12202a;
+  --navy-deep: #0c161d;
+  --navy-muted: #93a6b2;
+  --accent: #0e7a70;
+  --accent-hover: #0a6058;
+  --accent-soft: #e9f6f3;
+  --blue: #3f6f9d;
+  --ink: #16252e;
+  --text: #45565f;
+  --muted: #8b979f;
+  --line: #e8ecef;
+  --line-strong: #d8dfe4;
+  --surface: #ffffff;
+  --canvas: #f5f7f8;
+  --warn: #a97518;
+  --warn-soft: #fdf6e6;
+  --danger: #bf5b56;
+  --danger-soft: #fdf1f0;
+  --shadow: 0 1px 2px rgba(18, 32, 42, .04), 0 10px 28px rgba(18, 32, 42, .05);
+  --radius: 14px;
+  font-family: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background:
+    radial-gradient(1100px 520px at 92% -12%, #eaf1f2 0%, rgba(234, 241, 242, 0) 60%),
+    var(--canvas);
+  letter-spacing: .01em;
+}
+
+/* 标题与数字 */
+h1 { font-size: 29px; font-weight: 640; letter-spacing: -.02em; color: #10202a; }
+h2 { font-size: 17px; font-weight: 620; letter-spacing: -.01em; }
+h3 { font-size: 14px; font-weight: 620; }
+.eyebrow { letter-spacing: 2.1px; font-weight: 650; color: var(--accent); }
+.stat-value { font-variant-numeric: tabular-nums; font-weight: 640; letter-spacing: -.03em; }
+
+/* 侧栏 */
+.sidebar {
+  background: linear-gradient(180deg, #14242f 0%, #0c161d 100%);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .04);
+}
+.brand-mark {
+  background: linear-gradient(140deg, #1a3a44, #10242c);
+  border-color: rgba(255, 255, 255, .08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+}
+.brand-wordmark strong { letter-spacing: 4px; }
+.sidebar-label { letter-spacing: 2px; }
+.nav-item { border-radius: 10px; font-weight: 500; letter-spacing: .02em; }
+.nav-item.active {
+  background: linear-gradient(90deg, rgba(20, 160, 143, .18), rgba(20, 160, 143, .06));
+  box-shadow: inset 0 0 0 1px rgba(31, 168, 150, .18);
+}
+.nav-item.active:before {
+  background: linear-gradient(180deg, #33c4ae, #158f7f);
+  box-shadow: 0 0 12px rgba(51, 196, 174, .55);
+}
+
+/* 顶栏 */
+.topbar {
+  background: rgba(255, 255, 255, .82);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid #e7ebee;
+}
+.breadcrumb strong { color: #2c4653; font-weight: 560; }
+.save-badge { letter-spacing: .02em; }
+.save-badge i { box-shadow: 0 0 0 3px rgba(76, 162, 138, .14); }
+
+/* 卡片 */
+.card {
+  border: 1px solid #e9edf0;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  background: linear-gradient(180deg, #ffffff, #fdfdfe);
+}
+.card-header { border-bottom: 1px solid #eef1f3; padding: 18px 22px; }
+.card-header p, .card-header .muted { color: #909ca4; }
+.stat-card {
+  border-radius: var(--radius);
+  border: 1px solid #eceff2;
+  box-shadow: 0 1px 2px rgba(18, 32, 42, .03), 0 6px 18px rgba(18, 32, 42, .04);
+  background: linear-gradient(160deg, #ffffff 0%, #fafcfc 100%);
+}
+.stat-icon { border-radius: 10px; }
+
+/* 按钮 */
+.btn {
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  box-shadow: 0 1px 2px rgba(12, 61, 56, .12);
+}
+.btn:not(:disabled):hover { box-shadow: 0 6px 16px rgba(10, 96, 88, .18); }
+.btn.secondary { background: #fff; border-color: #dfe5e9; color: #4b6069; box-shadow: none; }
+.btn.ghost { color: #66787f; }
+
+/* 标签 */
+.pill { border-radius: 7px; font-weight: 600; letter-spacing: .02em; }
+
+/* 表格 */
+.data-table th {
+  background: #fafbfc;
+  color: #7f8d96;
+  font-weight: 600;
+  letter-spacing: .04em;
+  border-bottom: 1px solid #eaedf0;
+}
+.data-table td { border-bottom: 1px solid #f0f3f5; color: #4d606a; }
+.data-table tbody tr:hover { background: #fafcfc; }
+.data-table td strong { color: #22343f; font-weight: 600; }
+
+/* 表单 */
+input:not([type=checkbox]):not([type=radio]):not([type=file]),
+select, textarea {
+  border-radius: 10px;
+  border-color: #dde4e8;
+  background: #fff;
+  color: #40545e;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #6fb5aa;
+  box-shadow: 0 0 0 4px rgba(14, 122, 112, .10);
+}
+
+/* 上传区 */
+.dropzone {
+  border: 1.5px dashed #d5dee3;
+  background: linear-gradient(160deg, #fbfcfd, #f6fafa);
+  border-radius: 12px;
+}
+.dropzone:hover { border-color: #63ab9f; background: #f2faf7; }
+.upload-icon { border-radius: 14px; box-shadow: 0 6px 16px rgba(20, 60, 70, .07); }
+
+/* 弹窗 */
+.modal { border-radius: 18px; box-shadow: 0 30px 90px rgba(10, 24, 32, .28); }
+.modal-header { padding: 20px 24px; }
+.modal-header h2 { font-size: 16px; }
+
+/* 登录卡 */
+.auth-card { border-radius: 20px; box-shadow: 0 30px 70px rgba(8, 20, 28, .34); }
+.auth-brand .brand-mark { border-radius: 12px; background: linear-gradient(140deg, #14a08f, #0b6a61); }
+
+/* 细滚动条 */
+* { scrollbar-width: thin; scrollbar-color: #cdd7dc transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d3dce1; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #bcc8ce; background-clip: content-box; }
+
+/* —— 精致化补充 —— */
+.btn {
+  background: linear-gradient(135deg, #12867a 0%, #0b6a61 100%);
+  border-color: rgba(11, 106, 97, .35);
+}
+.btn:not(:disabled):hover {
+  background: linear-gradient(135deg, #0f7a6f 0%, #095a52 100%);
+}
+.btn.secondary { background: #fff; background-image: none; }
+.btn.danger { background: var(--danger-soft); background-image: none; }
+.card { box-shadow: 0 1px 2px rgba(18, 32, 42, .05), 0 14px 34px rgba(18, 32, 42, .06); }
+.page-intro h1 { letter-spacing: -.025em; }
+.data-table th { text-transform: none; }
+.topbar .breadcrumb strong { letter-spacing: .01em; }
+.modal-footer { background: #fbfcfd; }
+.pill.success { color: #147a6c; background: #e8f6f2; border-color: #cfe9e2; }
+.pill.warning { color: #9a6c17; background: #fdf5e4; border-color: #f1e2c4; }
+.pill.neutral { color: #75838d; background: #f3f5f7; border-color: #e7ebee; }
