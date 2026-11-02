@@ -185,3 +185,8 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .order-panel .table-wrap{max-height:calc(100vh - 300px);overflow:auto}
 .order-panel .data-table thead th{position:sticky;top:0;z-index:3;background:#f8fafb;box-shadow:inset 0 -1px 0 var(--line)}
 .order-panel .data-table thead th.sticky-action{z-index:4}
+
+/* 供应商格式卡已改为按钮+弹窗：导入区占满整行 */
+.workspace-grid{display:block;grid-template-columns:none;margin-bottom:16px}
+.workspace-grid>.card{margin-bottom:0}
+.workspace-grid .dropzone{min-height:96px}
