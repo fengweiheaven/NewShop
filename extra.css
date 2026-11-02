@@ -137,3 +137,36 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .sf-name strong{font-size:14px;color:#0f172a}
 .sf-name small{font-size:12px;color:#64748b}
 .sf-row .template-actions{flex:none}
+
+/* ===== 订单采集页布局优化 ===== */
+.workspace-grid{grid-template-columns:minmax(0,1fr) 340px;gap:16px;margin-bottom:16px}
+.workspace-grid>.card{margin-bottom:0}
+.stats-grid{gap:12px;margin-bottom:18px}
+.stat-card{min-height:92px;padding:14px 16px}
+.stat-value{font-size:24px}
+.stat-label{margin-bottom:4px}
+.stat-note{margin-top:6px}
+.page-intro{margin-bottom:20px}
+#content>.card,.order-panel{margin-bottom:16px}
+.workspace-grid .dropzone{min-height:148px;padding:20px 18px}
+.workspace-grid .dropzone .upload-icon{width:42px;height:42px}
+.workspace-grid .dropzone h3{margin-top:9px;margin-bottom:4px;font-size:13px}
+.workspace-grid .dropzone p{font-size:10px;line-height:1.7}
+.workspace-grid .dropzone .drop-hint{display:none}
+.quick-guide{display:flex;flex-direction:column;max-height:300px}
+.quick-guide>.card-body{overflow:auto}
+.sf-row{padding:8px 0}
+.sf-name strong{font-size:13px}
+.sf-name small{font-size:11px}
+.guide-note{margin-top:10px;padding-top:10px;border-top:1px solid #eef2f7}
+.format-head{margin-top:22px}
+@media(max-width:1100px){.workspace-grid{grid-template-columns:minmax(0,1fr) 300px}}
+@media(max-width:760px){.workspace-grid{grid-template-columns:1fr}.quick-guide{max-height:none}.workspace-grid .dropzone{min-height:130px}}
+
+/* 导入区改为横向紧凑条 */
+.workspace-grid .dropzone{flex-direction:row;align-items:center;justify-content:flex-start;text-align:left;gap:14px;min-height:96px;padding:18px 20px}
+.workspace-grid .dropzone .upload-icon{width:40px;height:40px;flex:none}
+.workspace-grid .dropzone .dz-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.workspace-grid .dropzone h3{margin:0;font-size:13px}
+.workspace-grid .dropzone p{margin:0;font-size:10px;line-height:1.6}
+.order-panel .empty-state{padding:34px 20px}
