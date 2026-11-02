@@ -530,7 +530,7 @@
       balance: groups.reduce((n, g) => n + (g.balance || 0), 0),
       noPrice: groups.reduce((n, g) => n + (g.noPrice || 0), 0)
     };
-    return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额；填了充值金额还能看账户余额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `<button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}</div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额；填了充值金额还能看账户余额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `${isSup ? '' : '<button class="btn secondary" id="recon-import">' + icon('upload') + ' 导入对账</button>'}<button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}<input type="file" id="recon-file" accept=".xlsx,.csv" hidden></div></div>
       ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
       <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
       <section class="card recon-account"><div class="recon-account-row">
@@ -547,6 +547,67 @@
         ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
         ${isSup ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>供价</th><th>金额</th><th>客户</th><th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc(l.supplierKey)}</td><td class="mono">${esc(l.orderNo || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="mono">${esc(l.barcode || '—')}</td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td>${esc(l.customer)}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>` : `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>年份</th><th>日期</th><th>客户名称</th><th>条码</th><th>产品名称</th><th>数量</th><th>单价</th><th>金额</th><th>是否开票</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc((String(l.date).match(/^\d{4}/) || [''])[0])}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td><td>${esc(l.customer)}</td><td class="mono">${esc(l.barcode || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td></tr>`).join('')}</tbody></table></div>`}
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
+  }
+  async function importRecon(file) {
+    if (!file) return;
+    await guardAsync(async () => {
+      const book = await OrderExcel.read(file);
+      let si = book.sheets.findIndex(s => s.rows.some(r => (r || []).some(c => poolNorm(c) === '是否开票')));
+      if (si < 0) si = 0;
+      const rows = book.sheets[si].rows;
+      const header = OrderExcel.detectHeader(rows);
+      const headers = rows[header] || [];
+      const find = label => {
+        const target = poolNorm(label);
+        let idx = headers.findIndex(h => poolNorm(h) === target);
+        if (idx < 0) idx = headers.findIndex(h => poolNorm(h) && poolNorm(h).includes(target));
+        return idx;
+      };
+      const cols = { year: find('年份'), date: find('日期'), customer: find('客户名称'), barcode: find('条码'), product: find('产品名称'), qty: find('数量'), price: find('单价'), invoice: find('是否开票') };
+      if (cols.product < 0 || cols.invoice < 0) { toast('没有找到「产品名称」或「是否开票」列，请使用对账格式表头。', 'warning'); return; }
+      const get = (r, i) => { if (i < 0) return ''; const v = r[i]; return v == null ? '' : String(v).trim(); };
+      const truthy = v => /^(是|已开票|开票|y|yes|true|1)$/i.test(v);
+      const falsy = v => /^(否|未开票|不开票|n|no|false|0)$/i.test(v);
+      const lines = reconBase().map(o => reconLine(o, 'customer'));
+      const key = l => [norm(l.customer), String(l.date).slice(0, 10), norm(l.product), String(l.qty), String(l.price == null ? '' : l.price)].join('|');
+      const byKey = new Map();
+      for (const l of lines) { const k = key(l); byKey.set(k, (byKey.get(k) || []).concat(l)); }
+      const items = [];
+      for (let i = header + 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        const product = get(r, cols.product);
+        const mark = get(r, cols.invoice);
+        if (!product || (!mark)) continue;
+        const want = truthy(mark) ? true : falsy(mark) ? false : null;
+        if (want === null) continue;
+        const date = String(get(r, cols.date)).slice(0, 10);
+        const k = [norm(get(r, cols.customer)), date, norm(product), String(get(r, cols.qty)), String(get(r, cols.price))].join('|');
+        const cands = byKey.get(k) || [];
+        items.push({ row: i + 1, product, customer: get(r, cols.customer), date, mark, want, orderId: cands.length === 1 ? cands[0].orderId : '', reason: cands.length === 1 ? '' : (cands.length ? '匹配到多条明细，已跳过' : '未找到对应订单明细') });
+      }
+      if (!items.length) { toast('表里没有可回填的「是否开票」数据。', 'warning'); return; }
+      const ok = items.filter(it => it.orderId);
+      const bad = items.filter(it => !it.orderId);
+      const changes = ok.filter(it => { const o = state.orders.find(x => x.id === it.orderId); return o && !!o.invoiced !== it.want; });
+      openModal('导入对账（回填开票状态）', `
+        <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · ${items.length} 行带「是否开票」标记。</span></div>
+        <div class="stats-grid compact">${[['可回填', ok.length, '按客户+日期+产品+数量+单价唯一匹配'], ['将变更', changes.length, '与当前开票标记不同'], ['未匹配', bad.length, '明细对不上，跳过']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
+        <p class="muted">只回填「是否开票」，不改单价与金额。匹配用的五要素必须完全一致，避免改错行。</p>
+        ${bad.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>行</th><th>客户</th><th>日期</th><th>产品</th><th>原因</th></tr></thead><tbody>${bad.slice(0, 5).map(it => `<tr><td class="numeric">${it.row}</td><td>${esc(it.customer)}</td><td>${esc(it.date)}</td><td>${esc(it.product)}</td><td>${esc(it.reason)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="recon-import-confirm" ${ok.length ? '' : 'disabled'}>确认回填</button>`, true);
+      const btn = $('#recon-import-confirm');
+      if (!ok.length) return;
+      btn.onclick = async () => {
+        let changed = 0;
+        for (const it of ok) {
+          const o = state.orders.find(x => x.id === it.orderId);
+          if (!o) continue;
+          if (!!o.invoiced !== it.want) { o.invoiced = it.want; changed++; }
+        }
+        await save(); closeModal(); render();
+        toast(`已回填 ${changed} 条开票状态${bad.length ? `，${bad.length} 行未匹配跳过` : ''}。`);
+      };
+    });
   }
   async function exportRecon() {
     const mode = reconMode;
@@ -577,6 +638,8 @@
     $$('[data-recon-group]').forEach(b => b.onclick = () => { reconGroup = b.dataset.reconGroup; render(); });
     $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
+    $('#recon-import')?.addEventListener('click', () => $('#recon-file').click());
+    $('#recon-file')?.addEventListener('change', e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (fl) importRecon(fl); });
     $$('[data-invoice]').forEach(cb => cb.onchange = async () => {
       const o = state.orders.find(x => x.id === cb.dataset.invoice);
       if (!o) return;
