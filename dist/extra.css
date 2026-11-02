@@ -120,3 +120,5 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .col-item:hover{background:#f8fafc}
 
 .preset-select{padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#0f172a;margin-right:8px}
+
+.template-actions{display:flex;gap:8px;align-items:center}
