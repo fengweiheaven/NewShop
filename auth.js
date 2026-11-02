@@ -72,7 +72,7 @@
     }
     gate.innerHTML = `
       <form class="auth-card" id="auth-form" autocomplete="on">
-        <div class="auth-brand"><span class="brand-mark">序</span><div><strong>序单</strong><small>商贸订单工作台</small></div></div>
+        <div class="auth-brand"><span class="brand-mark">丰</span><div><strong>丰涵</strong><small>代发订单管理平台</small></div></div>
         <h2>登录</h2>
         <p class="muted">用管理员分配的手机号与密码登录。</p>
         <label class="field"><span>手机号</span><input name="username" inputmode="tel" autocomplete="username" required placeholder="11 位手机号"></label>
