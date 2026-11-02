@@ -663,26 +663,97 @@
     return `<div class="page-intro"><div><div class="eyebrow">SUPPLIER LIBRARY</div><h1>一次建立，日常复用</h1><p>导入供应商报价单，自动识别商品与供应商；点击上方供应商即可切换查看其商品。</p></div><div class="intro-actions"><button class="btn secondary" id="new-supplier">${icon('plus')} 新增供应商</button><button class="btn" id="import-quote">${icon('upload')} 导入报价单</button></div></div>
       ${supplierRail()}
       ${OrderSeed.candidates.some(c => !state.products.find(p => p.id === c.productId)?.aliases.some(a => norm(a.name) === norm(c.name))) ? `<div class="alert info candidate-alert"><div>${icon('link')}<span><strong>样表中发现 3 条商品别名建议</strong><small>已区分儿童款与普通款。确认后才会用于订单匹配。</small></span></div><button class="btn secondary small" id="review-candidates">查看并确认</button></div>` : ''}
-      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="export-pool">导出商品池</button><button class="btn ghost small" id="import-pool">导入商品池</button><input type="file" id="pool-file" accept=".xlsx,.csv" hidden><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
+      <section class="card"><div class="card-header"><div><h2>${sel ? esc(sel.name) : '供应商库'} <span class="count" id="product-count">${count}</span></h2><p class="muted">${sel ? (sel.derived ? '该供应商由报价单品牌自动推断，请核对实际供货主体。' : `点击其他供应商可切换视图。`) : `共 ${state.suppliers.length} 家供应商`}</p></div><div class="intro-actions"><button class="btn ghost small" id="pool-cols">${poolColumnLabel()}</button><button class="btn ghost small" id="export-pool">导出商品池</button><button class="btn ghost small" id="import-pool">导入商品池</button><input type="file" id="pool-file" accept=".xlsx,.csv" hidden><button class="btn ghost small" id="import-catalog">简易导入（编码+名称）</button><input type="file" id="catalog-file" accept=".xlsx,.csv" hidden><input type="file" id="quote-file" accept=".xlsx,.csv" hidden><button class="btn small" id="new-product">${icon('plus')} 新增商品</button></div></div>
       <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="product-search" class="search-input" value="${esc(query)}" placeholder="搜索商品名称、品牌、69码、编码" aria-label="搜索商品"></label></div><div id="products-table">${productsTable()}</div></section>`;
   }
   function visibleProducts() {
     const q = norm(query);
     return state.products.filter(p => (supplierFilter === 'all' || p.supplierId === supplierFilter) && (!q || norm([p.name, p.supplierSku, p.internalSku, p.brand, p.barcode, p.category, ...p.aliases.map(a => a.name || a.code)].join(' ')).includes(q)));
   }
+  const POOL_COMMON = ['no', 'supplier', 'name', 'spec', 'netContent', 'cost', 'suggestPrice', 'internalSku', 'supplierSku', 'barcode', 'status'];
+  const poolCell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
+  const poolLink = v => v ? `<a class="text-link" href="${esc(v)}" target="_blank" rel="noopener">链接</a>` : '<span class="muted">—</span>';
+  const POOL_COLUMNS = [
+    { key: 'no', label: '序号', cell: (p, i) => String(i + 1), cls: 'numeric' },
+    { key: 'category', label: '类别', cell: p => poolCell(p.category) },
+    { key: 'supplier', label: '供应商名称', cell: (p, i, s) => poolCell(s.name) },
+    { key: 'brand', label: '品牌', cell: p => poolCell(p.brand) },
+    { key: 'name', label: '品名', cell: p => `<strong>${esc(p.name)}</strong>`, cls: 'product-cell' },
+    { key: 'image', label: '图片', cell: p => poolLink(p.image) },
+    { key: 'spec', label: '内容物配置', cell: p => poolCell(p.spec) },
+    { key: 'netContent', label: '净含量', cell: p => poolCell(p.netContent) },
+    { key: 'groupPrice', label: '集采价', cell: p => poolCell(p.groupPrice), cls: 'numeric' },
+    { key: 'minQty', label: '集采起订量', cell: p => poolCell(p.minQty), cls: 'numeric' },
+    { key: 'cost', label: '一件代发价格', cell: p => poolCell(p.cost), cls: 'numeric' },
+    { key: 'suggestPrice', label: '零售价', cell: p => poolCell(p.suggestPrice), cls: 'numeric' },
+    { key: 'shipping', label: '快递', cell: p => poolCell(p.shipping) },
+    { key: 'taxRate', label: '税率', cell: p => poolCell(p.taxRate) },
+    { key: 'taxCode', label: '税收编码', cell: p => poolCell(p.taxCode), cls: 'mono' },
+    { key: 'internalSku', label: '内部编码', cell: p => poolCell(p.internalSku), cls: 'mono' },
+    { key: 'supplierSku', label: '供应商编码', cell: p => poolCell(p.supplierSku), cls: 'mono' },
+    { key: 'barcode', label: '条码', cell: p => poolCell(p.barcode), cls: 'mono' },
+    { key: 'shelfLife', label: '保质期', cell: p => poolCell(p.shelfLife) },
+    { key: 'origin', label: '产地', cell: p => poolCell(p.origin) },
+    { key: 'shipFrom', label: '发货地', cell: p => poolCell(p.shipFrom) },
+    { key: 'size', label: '产品尺寸', cell: p => poolCell(p.size) },
+    { key: 'remoteExcluded', label: '偏远不发', cell: p => poolCell(p.remoteExcluded || '否') },
+    { key: 'link', label: '京东/天猫链接', cell: p => poolLink(p.link) },
+    { key: 'payAccount', label: '供应商付款账号', cell: (p, i, s) => poolCell(s.payAccount || s.bankAccount), cls: 'mono' },
+    { key: 'bankCode', label: '供应商开户行行号', cell: (p, i, s) => poolCell(s.bankCode), cls: 'mono' },
+    { key: 'bankAccount', label: '供应商银行账号', cell: (p, i, s) => poolCell(s.bankAccount), cls: 'mono' },
+    { key: 'bankName', label: '供应商银行名称', cell: (p, i, s) => poolCell(s.bankName) },
+    { key: 'createdAt', label: '建档时间', cell: p => poolCell((p.createdAt || '').slice(0, 10)) },
+    { key: 'status', label: '合作状态', cell: p => poolCell(p.status || '合作中') }
+  ];
+  function poolColumnKeys() {
+    try {
+      const saved = localStorage.getItem('orderflow.poolColumns');
+      if (saved === 'all') return POOL_COLUMNS.map(c => c.key);
+      if (saved) {
+        const arr = JSON.parse(saved);
+        const valid = arr.filter(k => POOL_COLUMNS.some(c => c.key === k));
+        if (valid.length) return valid;
+      }
+    } catch (_) { }
+    return POOL_COMMON.slice();
+  }
+  function poolColumnLabel() {
+    const keys = poolColumnKeys();
+    if (keys.length === POOL_COLUMNS.length) return '列：全部';
+    if (keys.length === POOL_COMMON.length && POOL_COMMON.every(k => keys.includes(k))) return '列：常用';
+    return `列：自定义(${keys.length})`;
+  }
+  function openColumnPicker() {
+    const current = new Set(poolColumnKeys());
+    openModal('显示哪些列', `<p class="muted">勾选要在商品表里显示的列；表格列再多都只是展示，导出始终是完整 30 列。</p>`
+      + `<div class="col-grid">${POOL_COLUMNS.map(c => `<label class="col-item"><input type="checkbox" value="${c.key}" ${current.has(c.key) ? 'checked' : ''}><span>${c.label}</span></label>`).join('')}</div>`,
+      `<button class="btn secondary" data-cancel>取消</button><button class="btn secondary" id="cols-common">常用列</button><button class="btn secondary" id="cols-all">全部列</button><button class="btn" id="cols-apply">应用</button>`, true);
+    const boxes = () => [...document.querySelectorAll('#modal-root .col-item input')];
+    $('#cols-common').onclick = () => boxes().forEach(b => { b.checked = POOL_COMMON.includes(b.value); });
+    $('#cols-all').onclick = () => boxes().forEach(b => { b.checked = true; });
+    $('#cols-apply').onclick = () => {
+      const keys = boxes().filter(b => b.checked).map(b => b.value);
+      if (!keys.length) { toast('至少保留一列。', 'warning'); return; }
+      localStorage.setItem('orderflow.poolColumns', keys.length === POOL_COLUMNS.length ? 'all' : JSON.stringify(keys));
+      closeModal();
+      const box = $('#products-table');
+      if (box) box.innerHTML = productsTable();
+      bindProductActions();
+      const btn = $('#pool-cols');
+      if (btn) btn.textContent = poolColumnLabel();
+    };
+  }
   function productsTable() {
     const ps = visibleProducts();
     const pages = Math.max(1, Math.ceil(ps.length / 40));
     if (productPage > pages) productPage = pages;
     const slice = ps.slice((productPage - 1) * 40, productPage * 40);
-    const cell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
-    const link = v => v ? `<a class="text-link" href="${esc(v)}" target="_blank" rel="noopener">链接</a>` : '<span class="muted">—</span>';
     const offset = (productPage - 1) * 40;
-    const head = ['序号', '类别', '供应商名称', '品牌', '品名', '图片', '内容物配置', '净含量', '集采价', '集采起订量', '一件代发价格', '零售价', '快递', '税率', '税收编码', '内部编码', '供应商编码', '条码', '保质期', '产地', '发货地', '产品尺寸', '偏远不发', '京东/天猫链接', '供应商付款账号', '供应商开户行行号', '供应商银行账号', '供应商银行名称', '建档时间', '合作状态', '操作'];
-    return `<div class="table-wrap"><table class="data-table pool-table"><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${slice.map((p, i) => {
+    const cols = poolColumnKeys().map(k => POOL_COLUMNS.find(c => c.key === k)).filter(Boolean);
+    return `<div class="table-wrap"><table class="data-table pool-table"><thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${slice.map((p, i) => {
       const s = sById(p.supplierId) || {};
-      return `<tr><td class="numeric">${offset + i + 1}</td><td>${cell(p.category)}</td><td>${cell(s.name)}</td><td>${cell(p.brand)}</td><td class="product-cell"><strong>${esc(p.name)}</strong></td><td>${link(p.image)}</td><td>${cell(p.spec)}</td><td>${cell(p.netContent)}</td><td class="numeric">${cell(p.groupPrice)}</td><td class="numeric">${cell(p.minQty)}</td><td class="numeric">${cell(p.cost)}</td><td class="numeric">${cell(p.suggestPrice)}</td><td>${cell(p.shipping)}</td><td>${cell(p.taxRate)}</td><td class="mono">${cell(p.taxCode)}</td><td class="mono">${cell(p.internalSku)}</td><td class="mono">${cell(p.supplierSku)}</td><td class="mono">${cell(p.barcode)}</td><td>${cell(p.shelfLife)}</td><td>${cell(p.origin)}</td><td>${cell(p.shipFrom)}</td><td>${cell(p.size)}</td><td>${cell(p.remoteExcluded || '否')}</td><td>${link(p.link)}</td><td class="mono">${cell(s.payAccount || s.bankAccount)}</td><td class="mono">${cell(s.bankCode)}</td><td class="mono">${cell(s.bankAccount)}</td><td>${cell(s.bankName)}</td><td>${cell((p.createdAt || '').slice(0, 10))}</td><td>${cell(p.status || '合作中')}</td><td><button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
-    }).join('') || '<tr><td colspan="31" class="empty-cell">没有找到商品，请导入报价单或调整筛选。</td></tr>'}</tbody></table></div><div class="pagination"><span>共 ${ps.length} 个商品 · 每页 40 个</span><div><button class="btn ghost small" data-ppage="${productPage - 1}" ${productPage <= 1 ? 'disabled' : ''}>上一页</button><span>${productPage} / ${pages}</span><button class="btn ghost small" data-ppage="${productPage + 1}" ${productPage >= pages ? 'disabled' : ''}>下一页</button></div></div>`;
+      return `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.cell(p, offset + i, s)}</td>`).join('')}<td><button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
+    }).join('') || `<tr><td colspan="${cols.length + 1}" class="empty-cell">没有找到商品，请导入报价单或调整筛选。</td></tr>`}</tbody></table></div><div class="pagination"><span>共 ${ps.length} 个商品 · 每页 40 个</span><div><button class="btn ghost small" data-ppage="${productPage - 1}" ${productPage <= 1 ? 'disabled' : ''}>上一页</button><span>${productPage} / ${pages}</span><button class="btn ghost small" data-ppage="${productPage + 1}" ${productPage >= pages ? 'disabled' : ''}>下一页</button></div></div>`;
   }
   function exportRow(order, product) {
     const sup = sById(product.supplierId);
@@ -740,6 +811,7 @@
     $('#import-quote')?.addEventListener('click',()=>$('#quote-file').click());
     $('#quote-file')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';quoteImport(f);});
     $$('[data-supplier-tile]').forEach(t=>{const pick=()=>{supplierFilter=t.dataset.supplierTile;productPage=1;render();};t.addEventListener('click',e=>{if(e.target.closest('[data-edit-supplier]'))return;pick();});t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});});
+    $('#pool-cols')?.addEventListener('click',openColumnPicker);
     $('#export-pool')?.addEventListener('click',()=>guardAsync(exportProductPool));
     $('#import-pool')?.addEventListener('click',()=>$('#pool-file').click());
     $('#pool-file')?.addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(f)poolImport(f);});
