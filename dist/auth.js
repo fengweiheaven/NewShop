@@ -117,7 +117,6 @@
     const menu = el('div', 'user-menu');
     menu.id = 'user-menu';
     menu.innerHTML = '<div class="user-menu-head"><strong>' + (p.name || p.phone || '已登录') + '</strong><small>' + (p.phone || '') + '</small></div>'
-      + '<div class="user-menu-role">角色：' + (ROLE_NAMES[p.role] || '未分配') + '</div>'
       + '<div class="user-menu-version">版本 ' + ((document.querySelector('meta[name=orderflow-build]') || {}).content || 'local') + '</div>'
       + '<button type="button" class="user-menu-item plain" id="nickname-btn">修改昵称</button>'
       + '<button type="button" class="user-menu-item plain" id="members-btn">成员与角色</button>'
@@ -174,7 +173,7 @@
     const initial = (profile.name || profile.phone || '?').slice(0, 1);
     chip.querySelector('.user-avatar').textContent = initial;
     chip.querySelector('.user-meta strong').textContent = profile.name || profile.phone || '已登录';
-    chip.querySelector('.user-meta small').textContent = ROLE_NAMES[profile.role] || '未分配角色';
+
   }
   function decorateHeader() {
     const badge = document.querySelector('.save-badge');
@@ -186,7 +185,7 @@
     const chip = el('button', 'user-chip');
     chip.type = 'button';
     chip.id = 'user-chip';
-    chip.innerHTML = '<span class="user-avatar">' + initial + '</span><span class="user-meta"><strong>' + (p.name || p.phone || '已登录') + '</strong><small>' + (ROLE_NAMES[p.role] || '未分配角色') + '</small></span>';
+    chip.innerHTML = '<span class="user-avatar">' + initial + '</span><span class="user-meta"><strong>' + (p.name || p.phone || '已登录') + '</strong></span>';
     chip.onclick = e => { e.stopPropagation(); showMenu(chip, p); };
     const divider = actions.querySelector('.topbar-divider');
     actions.insertBefore(chip, divider || null);
