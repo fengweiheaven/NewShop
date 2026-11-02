@@ -316,6 +316,13 @@
   function inDateFilter(d,key){if(!key||key==='all')return true;const r=dateRange(key);if(r)return d>=r[0]&&d<=r[1];return d===key;}
   function orderDateOptions(){const m=new Map();for(const r of activeRows()){const d=orderImportDate(r);m.set(d,(m.get(d)||0)+1);}return [...m.entries()].sort((a,b)=>a[0]<b[0]?1:-1);}
   function visibleOrders(){return activeRows().filter(r=>{const s=status(r);return (filter==='all'||filter==='pending'&&!['ready','excluded'].includes(s.key)||filter===s.key)&&inDateFilter(orderImportDate(r),dateFilter)&&(!query||norm([r.orderNo,r.customer,r.productName,r.recipient].join(' ')).includes(norm(query)));});}
+  function exportBadge(r) {
+    if (!r.exportedAt) return '<span class="pill neutral">未导出</span>';
+    const t = new Date(r.exportedAt);
+    if (isNaN(t.getTime())) return '<span class="pill neutral">未导出</span>';
+    const p = n => String(n).padStart(2, '0');
+    return `<span class="pill success">已导出</span><small class="export-time">${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}</small>`;
+  }
   function orderTable() {
     const rows = visibleOrders();
     const pages = Math.max(1, Math.ceil(rows.length / 30));
@@ -323,10 +330,10 @@
     const slice = rows.slice((page - 1) * 30, page * 30);
     const offset = (page - 1) * 30;
     const cell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
-    return slice.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>收件人</th><th>电话</th><th>详细地址</th><th>物流公司</th><th>快递单号</th><th>状态</th><th class="sticky-action">操作</th></tr></thead><tbody>${slice.map((r, i) => {
+    return slice.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>收件人</th><th>电话</th><th>详细地址</th><th>物流公司</th><th>快递单号</th><th>导出</th><th>状态</th><th class="sticky-action">操作</th></tr></thead><tbody>${slice.map((r, i) => {
       const s = status(r), p = s.product, c = suggestion(r);
       const supplier = p ? (sById(p.supplierId)?.name || '') : '';
-      return `<tr class="${s.key === 'excluded' ? 'row-excluded' : ''}"><td class="numeric">${offset + i + 1}</td><td>${cell(supplier)}</td><td class="mono">${cell(r.orderNo)}<small>${esc(r.customer)} · ${esc(r.sourceSheet)} 第 ${r.sourceRow} 行</small></td><td class="product-cell">${esc(p ? p.name : (r.productName || '未填写'))}<small>${esc(r.sourceSpec || r.sourceSku || '')}${p ? '' : c ? ' · 建议：' + esc(c.name) : ''}</small></td><td class="mono">${cell(p ? p.barcode : '')}</td><td class="numeric">${esc(r.quantity)}</td><td>${cell(r.recipient)}</td><td class="mono">${cell(r.phone)}</td><td>${cell(r.address)}</td><td>${cell(r.carrier)}</td><td class="mono">${cell(r.trackingNo)}</td><td>${badge(s)}</td><td class="sticky-action"><button class="text-link" data-edit-order="${esc(r.id)}">${s.key === 'ready' ? '查看 / 编辑' : '处理'}</button> <button class="text-link danger" data-del-order="${esc(r.id)}">删除</button></td></tr>`;
+      return `<tr class="${s.key === 'excluded' ? 'row-excluded' : ''}"><td class="numeric">${offset + i + 1}</td><td>${cell(supplier)}</td><td class="mono">${cell(r.orderNo)}<small>${esc(r.customer)} · ${esc(r.sourceSheet)} 第 ${r.sourceRow} 行</small></td><td class="product-cell">${esc(p ? p.name : (r.productName || '未填写'))}<small>${esc(r.sourceSpec || r.sourceSku || '')}${p ? '' : c ? ' · 建议：' + esc(c.name) : ''}</small></td><td class="mono">${cell(p ? p.barcode : '')}</td><td class="numeric">${esc(r.quantity)}</td><td>${cell(r.recipient)}</td><td class="mono">${cell(r.phone)}</td><td>${cell(r.address)}</td><td>${cell(r.carrier)}</td><td class="mono">${cell(r.trackingNo)}</td><td>${exportBadge(r)}</td><td>${badge(s)}</td><td class="sticky-action"><button class="text-link" data-edit-order="${esc(r.id)}">${s.key === 'ready' ? '查看 / 编辑' : '处理'}</button> <button class="text-link danger" data-del-order="${esc(r.id)}">删除</button></td></tr>`;
     }).join('')}</tbody></table></div>${pagination(rows.length)}` : `<div class="empty-state">${icon('file')}<h3>${activeRows().length ? (dateFilter==='all' ? '没有符合条件的明细' : '该日期没有上传订单') : '本次还没有订单'}</h3><p>${activeRows().length ? (dateFilter==='all' ? '尝试调整筛选条件或搜索内容。' : '日期筛选只按上传当天匹配，切换到「全部」或其他日期查看。') : '导入新订单，或在“选择本次批次 / 历史”中勾选历史批次。'}</p></div>`;
   }
   async function exportUnifiedOrders() {
