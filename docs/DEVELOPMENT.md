@@ -472,6 +472,13 @@ python -m http.server 8765 --directory dist
 
 - 匹配成功后除在页面回显，还会把「快递单号」「物流公司」写回对应订单（`order.trackingNo` / `order.carrier`），订单明细与统一订单导出因此能直接看到物流信息。
 
+## 9.1 运单回填的数据范围
+
+- 只处理**已按供应商格式导出过**的订单：`shipmentOrders()` 过滤条件为 `!excluded && exportedAt && orderNo`。
+- `exportedAt` 由 `markExported()` 在单家导出 / 批量 ZIP 导出成功后写入（存 ISO 时间）。
+- 页面顶部展示三张统计卡：已导出订单 / 已回填单号 / 待回填；没有已导出订单时提示先去订单采集页导出。
+- 匹配仍按 收货人 + 电话（并辅以地址近似）在已导出订单里找唯一命中，写回 `trackingNo` 与 `carrier`。
+
 ## 10. 模块六：对账
 
 入口 `renderRecon()`，页面标识 `recon`，同一页面用 `reconMode` 切换两种口径：
