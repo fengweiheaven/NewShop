@@ -105,3 +105,5 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .mini-actions{display:flex;justify-content:flex-end;gap:8px}
 .user-menu-item.plain{color:#0f172a}
 .user-menu-item.plain:hover{background:#f1f5f9}
+
+.user-menu-version{font-size:11px;color:#94a3b8;padding:0 8px 6px}

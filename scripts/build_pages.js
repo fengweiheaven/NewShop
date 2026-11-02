@@ -38,6 +38,7 @@ for (const asset of ASSETS) {
   const re = new RegExp('(src|href)="' + asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g');
   html = html.replace(re, `$1="${asset}?v=${version}"`);
 }
+html = html.replace('</head>', `<meta name="orderflow-build" content="${version}"></head>`);
 fs.writeFileSync(indexPath, html);
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
 console.log('built public/ version', version);
