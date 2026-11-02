@@ -495,7 +495,7 @@ python -m http.server 8765 --directory dist
 - 配置：`config.js` 提交占位；真实 Key 放 `config.local.js`（已 gitignore），缺省时自动回落到 local 模式。
 - SDK：`dist/vendor/cloudbase.iife.js`（由 @cloudbase/js-sdk 3.10.4 用 esbuild 打包成 IIFE，暴露 `window.cloudbase`）；官方 CDN 路径已失效，勿改回外链。
 - 登录门（`auth.js`）：云端模式页面加载先渲染登录表单（用户名=手机号），登录成功后 `OrderAuth.ready` 才放行 `init()`；角色从 `app_users` 读取，缺省为空。
-- 冲突处理：保存时若 `rev` 不匹配，`save()` 自动拉取最新云端数据、重渲染，并提示「数据已被他人修改，已为你刷新为最新版本」。
+- 冲突处理：保存时若 `rev` 不匹配，云端写入抛带 `conflict` 标记的错误；界面弹出「保存失败：数据冲突」弹窗，说明本次修改未保存，提供「刷新页面」按钮。**不会**自动用云端数据覆盖本地，也不会静默丢弃用户操作；弹窗延迟到调用方收尾之后弹出，避免被 `closeModal()` 立刻关掉，并抑制紧随其后的「已保存」成功提示。
 - 首迁：云端工作区为空且本机 IndexedDB 有旧数据时，顶部出现「导入本机数据」横幅，确认后把旧工作区写入云端。
 - 已验证：wrong password → 「用户名或密码不正确」；登录后写入 rev 0→1 且刷新保留；双标签页旧版本写入被拒；本机数据导入后刷新仍在。
 

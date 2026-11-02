@@ -107,9 +107,10 @@
     try { await OrderStore.save(copy(state)); }
     catch(e){
       const msg = e && e.message ? e.message : '保存失败，请立即备份数据。';
-      if (/已被他人修改/.test(msg)) {
-        try { const latest = await OrderStore.load(); if (latest) { state = latest.state; render(); } } catch (_) {}
-        toast('数据已被他人修改，已为你刷新为最新版本，请重试刚才的操作。', 'warning');
+      if ((e && e.conflict) || /已被他人修改/.test(msg)) {
+        window.__saveFailedAt = Date.now();
+        setTimeout(() => openModal('保存失败：数据冲突', `<p>本次写入由于其他人刚刚修改了同一份数据而失败，<strong>你这次的修改没有被保存</strong>。</p><p class="muted">请刷新页面获取最新数据后，再重新操作一次。</p>`, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="conflict-reload">刷新页面</button>`, true), 0);
+        setTimeout(() => { const btn = $('#conflict-reload'); if (btn) btn.onclick = () => location.reload(); }, 0);
         return;
       }
       storageFailure = true;
@@ -117,6 +118,7 @@
     }
   }
   function toast(msg,type='success') {
+    if (type !== 'warning' && Date.now() - (window.__saveFailedAt || 0) < 400) return;
     const el=document.createElement('div');el.className='toast '+type;el.setAttribute('role','status');el.textContent=msg;$('#toast-root').append(el);setTimeout(()=>el.remove(),5500);
   }
   function bindShell() {
