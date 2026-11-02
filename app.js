@@ -1482,15 +1482,15 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     const groups = new Map();
     for (const o of list) {
       const stt = status(o);
-      const sup = stt.product ? (sById(stt.product.supplierId)?.name || '未分配供应商') : '未分配供应商';
-      if (!groups.has(sup)) groups.set(sup, []);
-      groups.get(sup).push({ o, stt });
+      const cust = String(o.customer || '').trim() || '未命名客户';
+      if (!groups.has(cust)) groups.set(cust, []);
+      groups.get(cust).push({ o, stt });
     }
     const blocks = [...groups.entries()].map(([name, rows]) => {
       const filled = rows.filter(r => String(r.o.trackingNo || '').trim()).length;
-      return `<div class="ship-group"><div class="ship-group-head"><strong>${esc(name)}</strong><span class="muted">${rows.length} 条 · 已回填 ${filled} · 待回填 ${rows.length - filled}</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>商品</th><th>收件人</th><th>电话</th><th>地址</th><th>快递单号</th></tr></thead><tbody>${rows.slice(0, 200).map(({ o, stt }) => `<tr><td class="mono">${esc(o.orderNo)}</td><td class="product-cell">${esc(stt.product ? stt.product.name : o.productName)}</td><td>${esc(o.recipient || '—')}</td><td class="mono">${esc(o.phone || '—')}</td><td>${esc(String(o.address || '').slice(0, 28) || '—')}</td><td class="mono">${o.trackingNo ? esc(o.trackingNo) : '<span class="muted">待回填</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
+      return `<div class="ship-group"><div class="ship-group-head"><strong>${esc(name)}</strong><span class="muted">${rows.length} 条 · 已回填 ${filled} · 待回填 ${rows.length - filled}</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>商品</th><th>供应商</th><th>收件人</th><th>电话</th><th>地址</th><th>快递单号</th></tr></thead><tbody>${rows.slice(0, 200).map(({ o, stt }) => `<tr><td class="mono">${esc(o.orderNo)}</td><td class="product-cell">${esc(stt.product ? stt.product.name : o.productName)}</td><td>${esc(stt.product ? (sById(stt.product.supplierId)?.name || '—') : '—')}</td><td>${esc(o.recipient || '—')}</td><td class="mono">${esc(o.phone || '—')}</td><td>${esc(String(o.address || '').slice(0, 28) || '—')}</td><td class="mono">${o.trackingNo ? esc(o.trackingNo) : '<span class="muted">待回填</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
     }).join('');
-    return `<section class="card"><div class="card-header"><div><h2>待回填订单 <span class="count">${list.length}</span></h2><p class="muted">按供应商分组，只列出当前「导出日期」筛选范围内已导出的订单。</p></div></div><div class="card-body">${blocks}</div></section>`;
+    return `<section class="card"><div class="card-header"><div><h2>待回填订单 <span class="count">${list.length}</span></h2><p class="muted">按订单来源（客户）分组，只列出当前「导出日期」筛选范围内已导出的订单。</p></div></div><div class="card-body">${blocks}</div></section>`;
   }
   function renderShipment() {
     const st = shipmentStats();
