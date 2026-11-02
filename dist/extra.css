@@ -219,4 +219,4 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .export-time{display:block;margin-top:2px;color:#94a3b8;font-size:10px}
 
 /* 地址列：限宽省略，悬停看全文 */
-.addr{display:inline-block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.addr{display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
