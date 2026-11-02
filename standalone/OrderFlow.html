@@ -729,6 +729,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ['buyerNickname','买家昵称',['买家昵称','买家账号','客户昵称']],
     ['remark','备注',['买家备注','客户备注','订单备注','备注']],
     ['date','下单时间',['下单时间','支付时间','付款完成时间','订单日期','时间','订单时间','创建时间','付款时间']],
+    ['carrier','物流公司',['物流公司','快递公司','承运商','配送方式']],
+    ['trackingNo','快递单号',['快递单号','运单号','物流单号','快递编号']],
     ['province','省',['省','省份','收货省']],['city','市',['市','城市','收货市']],['district','区',['区','区县','收货区']],
     ['unitPrice','源单价',['成交价','商品单价','单价','销售单价']]
   ];
@@ -749,6 +751,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
+    for(const c of v.customers)for(const k of ['companyName','creditCode','companyAddress','contact','phone','bankName','bankBranch','bankCode','bankAccount','license','businessScope'])if(c[k]===undefined)c[k]='';
+    for(const o of v.orders){if(o.carrier===undefined)o.carrier='';if(o.trackingNo===undefined)o.trackingNo='';if(o.invoiced===undefined)o.invoiced=false;}
     if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
     for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
     // Correct only the known sample-alias constraint from the initial prototype.
@@ -858,10 +862,33 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderImport(){const s=summary();return `<div class="page-intro"><div><div class="eyebrow">DAILY ORDER WORKSPACE</div><h1>今天的订单，从这里开始</h1><p>批量导入客户表格，确认商品映射，再按供应商格式导出。</p></div><div class="intro-actions"><button class="btn secondary" id="demo-btn">体验示例</button><button class="btn" data-go="export" ${!s.ready?'disabled':''}>按供应商导出 ${icon('arrow')}</button></div></div>${stats()}
       <div class="workspace-grid"><section class="card"><div class="card-header"><h2>${icon('upload')} 导入客户订单</h2><span class="pill neutral">支持批量导入</span></div><div class="card-body"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="选择或拖入客户订单文件"><div class="upload-icon">${icon('upload')}</div><h3>拖入订单表格，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB</p><span class="drop-hint">自动识别表头 · 支持手动调整字段</span></div><input id="order-files" type="file" accept=".xlsx,.csv" multiple hidden></div></section>
       <aside class="card quick-guide"><div class="card-header"><h2>已适配你的样表</h2><span class="pill success">2 种订单格式</span></div><div class="card-body"><div class="profile-row">${icon('file')}<div><strong>兮迪订单</strong><small>订单编号 / 购买数量 / 收货人</small></div><span class="profile-mark">29 列</span></div><div class="profile-row">${icon('file')}<div><strong>GBH 订单</strong><small>订单号 / SKU码 / 数量</small></div><span class="profile-mark">18 列</span></div><div class="guide-note">${icon('shield')}<p>文件在本浏览器中处理。真实订单不会被预置到演示页面。</p></div></div></aside></div>
-      <section class="card order-panel"><div class="card-header"><div><h2>订单明细 <span class="count">${s.total}</span></h2><p class="muted">本次 ${state.activeBatchIds.length} 个批次 · ${s.total?`共 ${s.quantity} 件，${s.excluded} 条已排除。未处理明细会阻止生成。`:'导入后可逐行核对匹配结果和来源。'}</p></div>${state.orders.length?`<button class="btn ghost small danger-ghost" id="clear-orders">清空订单</button>`:''}${state.batches.length?'<button class="btn ghost small" id="batches-btn">选择本次批次 / 历史</button>':''}</div><div class="toolbar"><div class="tabs">${[['all','全部',s.total],['ready','已匹配',s.ready],['pending','待处理',s.unmatched+s.invalid+s.duplicate],['excluded','已排除',s.excluded]].map(([k,t,n])=>`<button class="tab ${filter===k?'active':''}" data-filter="${k}">${t}<span>${n}</span></button>`).join('')}</div><label class="search-wrap">${icon('search')}<input class="search-input" id="order-search" value="${esc(query)}" placeholder="搜索订单号、商品或客户" aria-label="搜索订单"></label></div><div id="orders-table">${orderTable()}</div></section>
+      <section class="card order-panel"><div class="card-header"><div><h2>订单明细 <span class="count">${s.total}</span></h2><p class="muted">本次 ${state.activeBatchIds.length} 个批次 · ${s.total?`共 ${s.quantity} 件，${s.excluded} 条已排除。未处理明细会阻止生成。`:'导入后可逐行核对匹配结果和来源。'}</p></div>${state.orders.length?`<button class="btn ghost small" id="export-unified">导出统一订单</button><button class="btn ghost small danger-ghost" id="clear-orders">清空订单</button>`:''}${state.batches.length?'<button class="btn ghost small" id="batches-btn">选择本次批次 / 历史</button>':''}</div><div class="toolbar"><div class="tabs">${[['all','全部',s.total],['ready','已匹配',s.ready],['pending','待处理',s.unmatched+s.invalid+s.duplicate],['excluded','已排除',s.excluded]].map(([k,t,n])=>`<button class="tab ${filter===k?'active':''}" data-filter="${k}">${t}<span>${n}</span></button>`).join('')}</div><label class="search-wrap">${icon('search')}<input class="search-input" id="order-search" value="${esc(query)}" placeholder="搜索订单号、商品或客户" aria-label="搜索订单"></label></div><div id="orders-table">${orderTable()}</div></section>
       <p class="page-footnote">${icon('link')} 商品别名确认后可复用；不使用订单明细 ID 作为商品编码。</p>`;}
   function visibleOrders(){return activeRows().filter(r=>{const s=status(r);return (filter==='all'||filter==='pending'&&!['ready','excluded'].includes(s.key)||filter===s.key)&&(!query||norm([r.orderNo,r.customer,r.productName,r.recipient].join(' ')).includes(norm(query)));});}
-  function orderTable(){const rows=visibleOrders();const pages=Math.max(1,Math.ceil(rows.length/30));if(page>pages)page=pages;const slice=rows.slice((page-1)*30,page*30);return slice.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>客户 / 来源</th><th>订单号</th><th>客户商品名称</th><th>数量</th><th>匹配商品 / 供应商编码</th><th>供应商</th><th>状态</th><th class="sticky-action">操作</th></tr></thead><tbody>${slice.map(r=>{const s=status(r),p=s.product,c=suggestion(r);return `<tr class="${s.key==='excluded'?'row-excluded':''}"><td><strong>${esc(r.customer)}</strong><small title="${esc(r.sourceFile)}">${esc(r.sourceSheet)} · 第 ${r.sourceRow} 行</small></td><td class="mono">${esc(r.orderNo||'—')}</td><td class="product-cell">${esc(r.productName||'未填写')}<small>${esc(r.sourceSpec||r.sourceSku||'')}</small></td><td class="numeric">${esc(r.quantity)}</td><td class="product-cell">${p?`${esc(p.name)}<small class="mono">${esc(p.supplierSku)}</small>`:c?`<span class="muted">建议：${esc(c.name)}</span><small class="amber-text">需要确认</small>`:'<span class="muted">尚未关联商品</span>'}</td><td>${esc(p?sById(p.supplierId)?.name:'—')}</td><td>${badge(s)}</td><td class="sticky-action"><button class="text-link" data-edit-order="${esc(r.id)}">${s.key==='ready'?'查看 / 编辑':'处理'}</button> <button class="text-link danger" data-del-order="${esc(r.id)}">删除</button></td></tr>`;}).join('')}</tbody></table></div>${pagination(rows.length)}`:`<div class="empty-state">${icon('file')}<h3>${activeRows().length?'没有符合条件的明细':'本次还没有订单'}</h3><p>${activeRows().length?'尝试调整筛选条件或搜索内容。':'导入新订单，或在“选择本次批次 / 历史”中勾选历史批次。'}</p></div>`;}
+  function orderTable() {
+    const rows = visibleOrders();
+    const pages = Math.max(1, Math.ceil(rows.length / 30));
+    if (page > pages) page = pages;
+    const slice = rows.slice((page - 1) * 30, page * 30);
+    const offset = (page - 1) * 30;
+    const cell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
+    return slice.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>收件人</th><th>电话</th><th>详细地址</th><th>物流公司</th><th>快递单号</th><th>状态</th><th class="sticky-action">操作</th></tr></thead><tbody>${slice.map((r, i) => {
+      const s = status(r), p = s.product, c = suggestion(r);
+      const supplier = p ? (sById(p.supplierId)?.name || '') : '';
+      return `<tr class="${s.key === 'excluded' ? 'row-excluded' : ''}"><td class="numeric">${offset + i + 1}</td><td>${cell(supplier)}</td><td class="mono">${cell(r.orderNo)}<small>${esc(r.customer)} · ${esc(r.sourceSheet)} 第 ${r.sourceRow} 行</small></td><td class="product-cell">${esc(p ? p.name : (r.productName || '未填写'))}<small>${esc(r.sourceSpec || r.sourceSku || '')}${p ? '' : c ? ' · 建议：' + esc(c.name) : ''}</small></td><td class="mono">${cell(p ? p.barcode : '')}</td><td class="numeric">${esc(r.quantity)}</td><td>${cell(r.recipient)}</td><td class="mono">${cell(r.phone)}</td><td>${cell(r.address)}</td><td>${cell(r.carrier)}</td><td class="mono">${cell(r.trackingNo)}</td><td>${badge(s)}</td><td class="sticky-action"><button class="text-link" data-edit-order="${esc(r.id)}">${s.key === 'ready' ? '查看 / 编辑' : '处理'}</button> <button class="text-link danger" data-del-order="${esc(r.id)}">删除</button></td></tr>`;
+    }).join('')}</tbody></table></div>${pagination(rows.length)}` : `<div class="empty-state">${icon('file')}<h3>${activeRows().length ? '没有符合条件的明细' : '本次还没有订单'}</h3><p>${activeRows().length ? '尝试调整筛选条件或搜索内容。' : '导入新订单，或在“选择本次批次 / 历史”中勾选历史批次。'}</p></div>`;
+  }
+  async function exportUnifiedOrders() {
+    const rows = activeRows().filter(r => !r.excluded);
+    if (!rows.length) { toast('本次没有可导出的订单。', 'warning'); return; }
+    const headers = ['序号', '供应商名称', '订单号', '商品名称', '69码', '数量', '收件人', '电话', '详细地址', '物流公司', '快递单号'];
+    const data = rows.map((r, i) => {
+      const st = status(r), p = st.product;
+      return [i + 1, p ? (sById(p.supplierId)?.name || '') : '', r.orderNo || '', p ? p.name : (r.productName || ''), p ? (p.barcode || '') : '', Number(r.quantity) || r.quantity, r.recipient || '', r.phone || '', r.address || '', r.carrier || '', r.trackingNo || ''];
+    });
+    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: '统一订单', filename: `统一订单_${stamp()}.xlsx` });
+    toast(`已导出 ${data.length} 条统一订单。`);
+  }
   function pagination(total){return `<div class="pagination"><span>共 ${total} 条 · 每页 30 条</span><div><button class="btn ghost small" data-page="${page-1}" ${page<=1?'disabled':''}>上一页</button><span>${page} / ${Math.max(1,Math.ceil(total/30))}</span><button class="btn ghost small" data-page="${page+1}" ${page*30>=total?'disabled':''}>下一页</button></div></div>`;}
   function supplierMetrics() {
     const m = new Map(state.suppliers.map(s => [s.id, { count: 0, brands: new Map(), min: null, max: null }]));
@@ -885,13 +912,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }).join('')}</div>`;
   }
   let customerQuery = '';
+  const CUSTOMER_FIELDS = [
+    ['name', '公司简称', { hint: '订单上显示的名字，例如「成都丰涵」' }],
+    ['companyName', '公司名称', {}],
+    ['creditCode', '社会信用代码', {}],
+    ['companyAddress', '公司地址', { full: true }],
+    ['contact', '联系人姓名', {}],
+    ['phone', '联系人电话', {}],
+    ['bankName', '开户银行', {}],
+    ['bankBranch', '所在支行', {}],
+    ['bankCode', '银行联行号', {}],
+    ['bankAccount', '银行账号', {}],
+    ['license', '营业执照', {}],
+    ['businessScope', '经营范围', { textarea: true, full: true }]
+  ];
   const customerByName = name => state.customers.find(c => norm(c.name) === norm(name));
   function ensureCustomer(name) {
     const n = String(name || '').trim();
     if (!n) return null;
     let c = customerByName(n);
     if (!c) {
-      c = { id: uid(), name: n, contact: '', phone: '', note: '', deposit: '', createdAt: new Date().toISOString() };
+      c = { id: uid(), createdAt: new Date().toISOString(), note: '', deposit: '' };
+      for (const [k] of CUSTOMER_FIELDS) c[k] = '';
+      c.name = n;
       state.customers.push(c);
     }
     return c;
@@ -902,13 +945,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   function customerModal(id) {
     const editing = !!id;
-    const c = copy(state.customers.find(x => x.id === id) || { id: uid(), name: '', contact: '', phone: '', note: '', deposit: '' });
-    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${field('客户名称', 'name', c.name, { required: true, full: true, hint: '订单上显示的名字，例如「丰涵」' })}${field('联系人', 'contact', c.contact)}${field('联系电话', 'phone', c.phone)}${editing ? `<div class="field full"><span>总充值金额</span><div class="read-count">¥${reconMoney(reconDeposit(c.name))} · 在对账页充值与查看记录</div></div>` : ''}${field('备注', 'note', c.note, { textarea: true, full: true })}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`);
+    const base = state.customers.find(x => x.id === id) || { id: uid(), createdAt: new Date().toISOString(), note: '', deposit: '' };
+    const c = copy(base);
+    for (const [k] of CUSTOMER_FIELDS) if (c[k] === undefined) c[k] = '';
+    openModal(editing ? '编辑客户' : '新增客户', `<form id="customer-form"><div class="form-grid">${CUSTOMER_FIELDS.map(([k, label, opts]) => field(label, k, c[k] || '', { ...opts, required: k === 'name' })).join('')}${field('备注', 'note', c.note, { textarea: true, full: true })}${editing ? `<div class="field full"><span>总充值金额</span><div class="read-count">¥${reconMoney(reconDeposit(c.name))} · 在对账页充值与查看记录</div></div>` : ''}</div><p class="form-error" id="customer-error"></p></form>`, `<button class="btn secondary" data-cancel>取消</button>${editing ? '<button class="btn danger" id="delete-customer">删除客户</button>' : ''}<button class="btn" id="save-customer">保存客户</button>`, true);
     $('#save-customer').onclick = async () => {
       const f = new FormData($('#customer-form'));
-      ['name', 'contact', 'phone', 'note'].forEach(k => c[k] = String(f.get(k) || '').trim());
-      if (!c.name) { $('#customer-error').textContent = '请填写客户名称。'; return; }
-      if (state.customers.some(x => x.id !== c.id && norm(x.name) === norm(c.name))) { $('#customer-error').textContent = '客户名称已存在。'; return; }
+      for (const [k] of CUSTOMER_FIELDS) c[k] = String(f.get(k) || '').trim();
+      c.note = String(f.get('note') || '').trim();
+      if (!c.name) { $('#customer-error').textContent = '请填写公司简称。'; return; }
+      if (state.customers.some(x => x.id !== c.id && norm(x.name) === norm(c.name))) { $('#customer-error').textContent = '公司简称已存在。'; return; }
       const idx = state.customers.findIndex(x => x.id === c.id);
       idx < 0 ? state.customers.push(c) : state.customers.splice(idx, 1, c);
       await save(); closeModal(); render(); toast('客户已保存。');
@@ -925,18 +971,27 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderCustomers() {
     const q = norm(customerQuery);
     const rows = state.customers
-      .filter(c => !q || norm([c.name, c.contact, c.phone, c.note].join(' ')).includes(q))
+      .filter(c => !q || norm(CUSTOMER_FIELDS.map(([k]) => c[k]).concat([c.note]).join(' ')).includes(q))
       .map(c => ({ ...c, orders: customerOrderCount(c.name) }))
       .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name, 'zh-CN'));
-    return `<div class="page-intro"><div><div class="eyebrow">CUSTOMER LIBRARY</div><h1>谁给我们下的单</h1><p>把给订单的客户维护成一份清单；导入订单时按名字自动挂上，也能在这里补联系人和备注。</p></div><div class="intro-actions"><button class="btn" id="new-customer">${icon('plus')} 新增客户</button></div></div>
-      ${rows.length ? `<div class="stats-grid">${[['box', '客户数', state.customers.length, '已登记给单的客户'], ['file', '有订单的客户', state.customers.filter(c => customerOrderCount(c.name) > 0).length, '至少下过一单'], ['check', '订单总数', state.orders.length, '含历史批次']].map(([ic, l, v, n]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${l === '订单总数' ? '条' : '个'}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>` : ''}
-      <section class="card"><div class="card-header"><div><h2>客户库 <span class="count">${state.customers.length}</span></h2><p class="muted">按订单数排序；导入订单时出现的新客户会自动登记。</p></div><div class="intro-actions"><button class="btn ghost small" id="sync-customers">从历史订单补登记</button></div></div>
-      <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="customer-search" class="search-input" value="${esc(customerQuery)}" placeholder="搜索客户、联系人、电话" aria-label="搜索客户"></label></div>
-      ${rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>客户名称</th><th>联系人</th><th>联系电话</th><th>订单数</th><th>备注</th><th>操作</th></tr></thead><tbody>${rows.map(c => `<tr><td class="product-cell"><strong>${esc(c.name)}</strong><small>${esc((c.createdAt || '').slice(0, 10))}</small></td><td>${esc(c.contact || '—')}</td><td class="mono">${esc(c.phone || '—')}</td><td class="numeric">${c.orders}</td><td>${esc(c.note || '—')}</td><td><button class="text-link" data-edit-customer="${esc(c.id)}">编辑</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('box')}<h3>${state.customers.length ? '没有匹配的客户' : '还没有客户'}</h3><p>${state.customers.length ? '换个关键词试试。' : '导入订单时会按客户名自动登记；也可以点右上角「新增客户」先建好。'}</p></div>`}</section>`;
+    const cell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
+    return `<div class="page-intro"><div><div class="eyebrow">CUSTOMER LIBRARY</div><h1>谁给我们下的单</h1><p>按「客户信息表」的口径维护客户主体、联系人与银行资料；导入订单时按公司简称自动挂上。</p></div><div class="intro-actions"><button class="btn secondary" id="export-customers">${icon('download')} 导出客户信息表</button><button class="btn" id="new-customer">${icon('plus')} 新增客户</button></div></div>
+      ${rows.length ? `<div class="stats-grid">${[['box', '客户数', state.customers.length, '已登记客户', '个'], ['file', '有订单的客户', state.customers.filter(c => customerOrderCount(c.name) > 0).length, '至少下过一单', '个'], ['check', '订单总数', state.orders.length, '含历史批次', '条']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>` : ''}
+      <section class="card"><div class="card-header"><div><h2>客户库 <span class="count">${state.customers.length}</span></h2><p class="muted">列与「客户信息表」表头一致：简称、公司名称、信用代码、联系人、电话、订单数；其余字段在编辑里。</p></div><div class="intro-actions"><button class="btn ghost small" id="sync-customers">从历史订单补登记</button></div></div>
+      <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="customer-search" class="search-input" value="${esc(customerQuery)}" placeholder="搜索简称、公司、信用代码、联系人" aria-label="搜索客户"></label></div>
+      ${rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>供应商名称（公司简称）</th><th>公司名称</th><th>社会信用代码</th><th>联系人姓名</th><th>联系人电话</th><th>订单数</th><th>操作</th></tr></thead><tbody>${rows.map(c => `<tr><td class="product-cell"><strong>${esc(c.name)}</strong><small>${esc((c.createdAt || '').slice(0, 10))}</small></td><td>${cell(c.companyName)}</td><td class="mono">${cell(c.creditCode)}</td><td>${cell(c.contact)}</td><td class="mono">${cell(c.phone)}</td><td class="numeric">${c.orders}</td><td><button class="text-link" data-edit-customer="${esc(c.id)}">编辑</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('box')}<h3>${state.customers.length ? '没有匹配的客户' : '还没有客户'}</h3><p>${state.customers.length ? '换个关键词试试。' : '导入订单时会按客户名自动登记；也可以点右上角「新增客户」先建好。'}</p></div>`}</section>`;
+  }
+  async function exportCustomers() {
+    const headers = ['供应商名称（公司简称）', '公司名称', '社会信用代码', '公司地址', '联系人姓名', '联系人电话', '开户银行', '所在支行', '银行联行号', '银行账号', '营业执照', '经营范围'];
+    const rows = state.customers.map(c => CUSTOMER_FIELDS.map(([k]) => c[k] ?? ''));
+    if (!rows.length) { toast('还没有客户可导出。', 'warning'); return; }
+    await OrderExcel.downloadWorkbook({ headers, rows, sheetName: '客户信息表', filename: `客户信息表_${stamp()}.xlsx` });
+    toast(`已导出 ${rows.length} 个客户。`);
   }
   function bindCustomers() {
     $('#new-customer')?.addEventListener('click', () => customerModal());
     $$('[data-edit-customer]').forEach(b => b.onclick = () => customerModal(b.dataset.editCustomer));
+    $('#export-customers')?.addEventListener('click', () => guardAsync(exportCustomers));
     $('#customer-search')?.addEventListener('input', e => { customerQuery = e.target.value; render(); const el = $('#customer-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
     $('#sync-customers')?.addEventListener('click', async () => {
       let added = 0;
@@ -970,7 +1025,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       customer, supplier: supplier || '未分配供应商', supplierKey: supplier || '未分配供应商',
       orderNo: String(o.orderNo || ''), date: String(o.date || ''),
       product: p ? p.name : String(o.productName || ''), spec: p ? (p.spec || '') : String(o.sourceSpec || ''),
-      sku: p ? (p.supplierSku || '') : '', qty, price,
+      sku: p ? (p.supplierSku || '') : '', barcode: p ? (p.barcode || '') : '', orderId: o.id, invoiced: !!o.invoiced, qty, price,
       amount: price == null ? null : Math.round(price * qty * 100) / 100,
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
     };
@@ -1104,7 +1159,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
         ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
-        <div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>下单时间</th>${pick ? '' : `<th>${groupLabel}</th>`}<th>商品</th><th>数量</th><th>${isSup ? '供价' : '单价'}</th><th>金额</th>${isSup ? '<th>客户</th>' : '<th>供应商</th>'}<th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="mono">${esc(l.orderNo || '—')}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td>${pick ? '' : `<td>${esc(isSup ? l.supplierKey : l.customer)}</td>`}<td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td>${esc(isSup ? l.customer : (l.supplier || '—'))}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>
+        ${isSup ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>供价</th><th>金额</th><th>客户</th><th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc(l.supplierKey)}</td><td class="mono">${esc(l.orderNo || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="mono">${esc(l.barcode || '—')}</td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td>${esc(l.customer)}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>` : `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>年份</th><th>日期</th><th>客户名称</th><th>条码</th><th>产品名称</th><th>数量</th><th>单价</th><th>金额</th><th>是否开票</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc((String(l.date).match(/^\d{4}/) || [''])[0])}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td><td>${esc(l.customer)}</td><td class="mono">${esc(l.barcode || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td></tr>`).join('')}</tbody></table></div>`}
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
   }
   async function exportRecon() {
@@ -1118,12 +1173,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const isSup = mode === 'supplier';
     const headers = isSup
       ? ['订单号', '下单时间', '供应商', '供应商编码', '商品', '规格', '数量', '供价', '金额', '客户', '收货人', '电话', '地址', '状态']
-      : ['订单号', '下单时间', '客户', '商品', '规格', '数量', '单价', '金额', '供应商', '供应商编码', '收货人', '电话', '地址', '状态'];
+      : ['序号', '年份', '日期', '客户名称', '条码', '产品名称', '数量', '单价', '金额', '是否开票'];
     const data = lines.map(l => isSup
       ? [l.orderNo, l.date, l.supplierKey, l.sku, l.product, l.spec, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.customer, l.recipient, l.phone, l.address, l.status]
-      : [l.orderNo, l.date, l.customer, l.product, l.spec, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.supplier, l.sku, l.recipient, l.phone, l.address, l.status]);
+      : [lines.indexOf(l) + 1, (String(l.date).match(/^\d{4}/) || [''])[0], l.date, l.customer, l.barcode, l.product, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.invoiced ? '是' : '否']);
     const name = pick ? `${pick}_${isSup ? '供应商' : '客户'}对账` : `全部${isSup ? '供应商' : '客户'}_对账`;
-    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: isSup ? '供应商对账' : '客户对账', filename: `${name}_${stamp()}.xlsx` });
+    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: isSup ? '供应商对账' : '对账', filename: `${name}_${stamp()}.xlsx` });
     if (!isSup) {
       const acc = pick ? reconAccount(pick) : groups.reduce((a, g) => ({ deposit: a.deposit + (g.deposit || 0), total: a.total + (g.total || 0), balance: a.balance + (g.balance || 0) }), { deposit: 0, total: 0, balance: 0 });
       toast(`已导出 ${data.length} 条客户对账；充值 ¥${reconMoney(acc.deposit)} · 应收 ¥${reconMoney(acc.total)} · 余额 ¥${reconMoney(acc.balance)}。`);
@@ -1136,6 +1191,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $$('[data-recon-group]').forEach(b => b.onclick = () => { reconGroup = b.dataset.reconGroup; render(); });
     $$('[data-recon-scope]').forEach(b => b.onclick = () => { reconScope = b.dataset.reconScope; render(); });
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
+    $$('[data-invoice]').forEach(cb => cb.onchange = async () => {
+      const o = state.orders.find(x => x.id === cb.dataset.invoice);
+      if (!o) return;
+      o.invoiced = cb.checked;
+      await save(); render(); toast(cb.checked ? '已标记为已开票。' : '已标记为未开票。');
+    });
     const rk = () => reconMode === 'supplier' ? 'supplier' : 'customer';
     $('#recon-recharge')?.addEventListener('click', () => rechargeModal(reconGroup, rk()));
     $('#recon-recharge-list')?.addEventListener('click', () => rechargeListModal(reconGroup, rk()));
@@ -1221,6 +1282,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $('#import-catalog')?.addEventListener('click',()=>$('#catalog-file').click());
     $('#catalog-file')?.addEventListener('change',e=>catalogImport(e.target.files[0]));
     $$('[data-template]').forEach(b=>b.onclick=()=>templateModal(b.dataset.template));
+    $('#export-unified')?.addEventListener('click', () => guardAsync(exportUnifiedOrders));
     $('#clear-orders')?.addEventListener('click',()=>confirmDialog('清空全部订单',`将删除 ${state.orders.length} 条明细和 ${state.batches.length} 个批次，供应商库不受影响。`,async()=>{await deleteOrders(state.orders.map(r=>r.id),'订单已清空。');}));
     $$('[data-export-group]').forEach(b=>b.onclick=()=>{selectedExport=b.dataset.exportGroup;render();});
     $('#export-current')?.addEventListener('click',()=>guardAsync(()=>exportOne(exportGroups().find(g=>g.supplier.id===selectedExport))));
@@ -1513,6 +1575,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     ['phone', '收货电话', ['收货人号码', '收货人电话', '收货人手机', '收件人电话', '收件人手机', '手机', '手机号', '联系电话', '电话']],
     ['address', '收货地址', ['收货人地址', '收货地址', '详细地址', '收件地址', '地址']],
     ['product', '商品名称', ['商品名称', '产品名称', '品名', '货品名称', '商品']],
+    ['carrier', '物流公司', ['物流公司', '快递公司', '承运商', '配送方式']],
     ['tracking', '快递单号', ['快递单号', '运单号', '物流单号', '快递编号', 'tracking', '追踪号']]
   ];
   let shipment = null;
@@ -1552,7 +1615,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
       return {
         row, index,
         recipient: cell(row, 'recipient'), phone: cell(row, 'phone'), address: cell(row, 'address'),
-        product: cell(row, 'product'), tracking: cell(row, 'tracking'),
+        product: cell(row, 'product'), tracking: cell(row, 'tracking'), carrier: cell(row, 'carrier'),
         orderNo: hit ? hit.orderNo : '', how: hit ? how : '', orderId: hit ? hit.id : ''
       };
     });
@@ -1584,7 +1647,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
         $('[name="s-sheet"]').onchange = e => { d.sheet = Number(e.target.value); d.header = OrderExcel.detectHeader(book.sheets[d.sheet].rows); d.map = shipmentAutoMap(book.sheets[d.sheet].rows[d.header]); draw(); };
         $('[name="s-header"]').onchange = e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 1 && n <= Math.min(sheet.rows.length, 20)) { d.header = n - 1; d.map = shipmentAutoMap(book.sheets[d.sheet].rows[d.header]); draw(); } };
         for (const [k] of SHIPMENT_FIELDS) { if (k === 'orderNo') continue; const el = $(`[name="s-map-${k}"]`); if (el) el.onchange = e => { d.map[k] = Number(e.target.value); }; }
-        $('#run-shipment').onclick = () => {
+        $('#run-shipment').onclick = () => guardAsync(async () => {
           const targetVal = $('[name="s-target"]').value;
           const rows = sheet.rows.slice(d.header + 1).filter(r => r && r.some(v => String(v ?? '').trim()));
           if (!rows.length) { $('#shipment-error').textContent = '表头下没有数据行。'; return; }
@@ -1598,9 +1661,18 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
             widths: sheet.widths || [],
             createdAt: new Date().toISOString()
           };
+          let filled = 0;
+          for (const m of matched) {
+            if (!m.orderId) continue;
+            const order = state.orders.find(o => o.id === m.orderId);
+            if (!order) continue;
+            if (m.tracking && order.trackingNo !== m.tracking) { order.trackingNo = m.tracking; filled++; }
+            if (m.carrier) order.carrier = m.carrier;
+          }
+          if (filled) await save();
           closeModal(); render();
-          toast(`已匹配 ${matched.filter(m => m.orderNo).length} / ${matched.length} 行。`);
-        };
+          toast(`已匹配 ${matched.filter(m => m.orderNo).length} / ${matched.length} 行${filled ? `，${filled} 条快递单号已写回订单` : ''}。`);
+        });
       };
       draw();
     });

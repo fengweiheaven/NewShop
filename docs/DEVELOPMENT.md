@@ -125,7 +125,7 @@ python -m http.server 8765 --directory dist
 | --- | --- | --- |
 | Supplier | `id, name, contact, phone, note, template, derived` | 每个供应商保存一份当前模板配置；`derived` 表示该供应商来自报价单「按品牌推断」，需人工核对供货主体 |
 | Product | `id, internalSku, name, spec, unit, supplierId, supplierSku, aliases`，报价单导入后另有 `brand, category, barcode, groupPrice, cost, broadcastPrice, suggestPrice, marginOwn, marginBroadcast, jdPrice, link, sourceFile` | 每个标准商品关联一个供应商与供应商商品编码；`barcode` 为 69 码，`cost` 为供价/进货价，`groupPrice` 为集采价，`broadcastPrice` 为广电供价，两个 `margin*` 是 0–1 的毛利率 |
-| Customer | `id, name, contact, phone, note, createdAt` | 给订单的客户；名称按 `norm()` 查重，订单只按名称关联，不做改名传播 |
+| Customer | `id, name, companyName, creditCode, companyAddress, contact, phone, bankName, bankBranch, bankCode, bankAccount, license, businessScope, note, createdAt` | 给订单的客户；名称按 `norm()` 查重，订单只按名称关联，不做改名传播 |
 | Recharge | `id, kind, name, amount, date, note, createdAt` | 充值流水，`kind` 为 `customer` / `supplier`，按名称关联对应对象；总充值 = 同名同类型记录之和 |
 | Alias | `customer, name, spec, code` | 空客户表示通用别名；规格可作为精确约束。`code` 的界面能力见第 6 节 |
 | Batch | `id, name, hash, customer, createdAt, rowCount?, demo?, exportedAt?` | 一次确认导入建立一个批次；通常对应一个文件里选中的一个工作表 |
@@ -141,7 +141,7 @@ python -m http.server 8765 --directory dist
 | 标识与客户 | `id, batchId, customer, orderNo, sourceLineId` |
 | 来源商品 | `productName, sourceSku, sourceSpec, quantity, unitPrice` |
 | 收件信息 | `recipient, phone, address, province, city, district, buyerNickname` |
-| 补充信息 | `remark, date` |
+| 补充信息 | `remark, date, carrier, trackingNo, invoiced` |
 | 来源追踪 | `sourceFile, sourceSheet, sourceRow, raw` |
 | 处理控制 | `excluded, manual, productId, duplicateOf?, duplicateDiscriminator?, exportedAt?` |
 
@@ -247,6 +247,9 @@ python -m http.server 8765 --directory dist
 - 「从历史订单补登记」可一次性补齐遗漏的客户名。
 - 删除客户只移除客户资料，不删除订单：订单上的客户名是普通字符串，会保留下来；确认框会写明还有多少条订单记录。
 - 客户与订单之间只靠名称关联：改客户名不会批量改历史订单，需要时在订单弹窗里逐条调整。
+
+- 客户字段对齐「客户信息表」表头：公司简称（`name`，订单按它关联）、公司名称、社会信用代码、公司地址、联系人姓名、联系人电话、开户银行、所在支行、银行联行号、银行账号、营业执照、经营范围。
+- 客户库列表显示简称、公司名称、信用代码、联系人、电话、订单数；「导出客户信息表」按上述 12 列导出。
 
 ## 6. 模块三：订单采集与匹配
 
@@ -362,6 +365,10 @@ python -m http.server 8765 --directory dist
 
 清理内容：移除订单行；被删除行若是其他行的 `duplicateOf` 目标，同时清除该指向；订单清空后对应的空批次一并移除；`activeBatchIds` 同步收窄；最后写入 IndexedDB 并重绘。删除不支持撤销，界面用 `confirmDialog()` 做二次确认。供应商库与供应商资料不受影响。
 
+- 订单明细表按「订单统一表头」展示：序号 / 供应商名称 / 订单号 / 商品名称 / 69码 / 数量 / 收件人 / 电话 / 详细地址 / 物流公司 / 快递单号，末尾追加状态与操作列（客户名显示在订单号下方）。
+- 订单新增 `carrier`（物流公司）、`trackingNo`（快递单号）、`invoiced`（是否开票）字段；前两者可由导入表直接映射，也可由运单回填写回。
+- 「导出统一订单」按这 11 列导出本次批次中未被排除的明细。
+
 ## 7. 模块四：供应商格式与导出
 
 本版取消了统一订单：各供应商要求的列结构不同，中间的统一格式没有实际用途。匹配完成后直接按供应商落成对方格式。
@@ -432,6 +439,8 @@ python -m http.server 8765 --directory dist
 - `exportShipment()` 用原表表头与列宽重建工作簿，只替换目标列；未匹配行的订单号留空。文件名追加 `_回填订单号_日期`。
 - 回填状态只保存在内存（`shipment` 变量），刷新页面需重新上传；不写入 IndexedDB，避免把整张外部表塞进工作区。
 
+- 匹配成功后除在页面回显，还会把「快递单号」「物流公司」写回对应订单（`order.trackingNo` / `order.carrier`），订单明细与统一订单导出因此能直接看到物流信息。
+
 ## 10. 模块六：对账
 
 入口 `renderRecon()`，页面标识 `recon`，同一页面用 `reconMode` 切换两种口径：
@@ -456,6 +465,10 @@ python -m http.server 8765 --directory dist
 - 导出由 `exportRecon()` 按当前口径生成 14 列：客户对账为「订单号/时间/客户/商品/规格/数量/单价/金额/供应商/编码/收货人/电话/地址/状态」；供应商对账把「客户」与「供应商」对调并改「单价」为「供价」。
 - 余额提醒：进入对账页时 `maybeShowBalanceNotice()` 会检查所有有订单或充值的客户，余额 ≤ 0 的以弹窗列出（客户 / 总充值 / 应收 / 余额）。同一次会话只提示一次；点「今天不再提示」会把当天日期写进 `state.reconNoticeDate`，当天再进入不再弹窗，跨天自动恢复。点「知道了」只关闭当次，刷新后仍会提醒。
 - 对账是只读视图，不改动任何订单数据。
+
+- 客户对账的表格与导出按「对账格式表头」：序号 / 年份 / 日期 / 客户名称 / 条码 / 产品名称 / 数量 / 单价 / 金额 / 是否开票，共 10 列；年份取日期前四位，条码取商品 69 码。
+- 「是否开票」是订单级标记 `order.invoiced`，在表格里勾选即保存，导出为「是 / 否」。
+- 供应商对账仍按供应商口径：序号 / 供应商名称 / 订单号 / 商品名称 / 69码 / 数量 / 供价 / 金额 / 客户 / 收货人。
 
 ## 11. Excel 引擎接口与规则
 
@@ -576,6 +589,7 @@ python -m http.server 8765 --directory dist
 | 客户库 | 手动新增客户显示 0 单；导入订单后按文件名客户名自动登记、订单数 2；删除该客户时确认框提示「还有 2 条订单记录」，删除后客户消失而订单客户名保留 |
 | 客户充值余额 | 应收 ¥180.70：无充值余额 −¥180.70；充 500 后 ¥319.30；再充 1200 后 ¥1519.30；记录按日期倒序（11-01、10-15）；删掉 1200 后总充值回到 ¥500、余额 ¥319.30 |
 | 充值迁移 | 旧数据 `customer.deposit=300` → 启动后生成一条「历史充值」¥300，合计 ¥300、余额 ¥200 |
+| 表头对齐 | 订单明细与导出为「订单统一表头」11 列；客户库与导出为「客户信息表」12 列；客户对账与导出为「对账格式表头」10 列；运单回填后快递单号写回订单并显示 |
 | 余额提醒 | 客户余额 −¥180.70 时进入对账即弹出提醒表；「知道了」本会话不再重复；刷新后再次提醒；「今天不再提示」写入 `reconNoticeDate=2026-11-01`，当天刷新不再弹出 |
 | 供应商充值 | 应付 ¥40 时余额 −¥40；充 1000（日期 2026-10-20）后余额 ¥960；记录标 `kind=supplier`，客户对账的充值仍为 ¥0，两种口径互不影响 |
 | 对账（客户/供应商） | 客户口径：单价 45.5×2 + 29.9×3 = 应收 ¥180.70；供应商口径：供价 20×2 = 应付 ¥40.00，另 1 条缺供价被排除并提示；两种口径导出均为 14 列、3 行 |
