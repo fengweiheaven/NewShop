@@ -310,11 +310,60 @@
       .map(c => ({ ...c, orders: customerOrderCount(c.name) }))
       .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name, 'zh-CN'));
     const cell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
-    return `<div class="page-intro"><div><div class="eyebrow">CUSTOMER LIBRARY</div><h1>谁给我们下的单</h1><p>按「客户信息表」的口径维护客户主体、联系人与银行资料；导入订单时按公司简称自动挂上。</p></div><div class="intro-actions"><button class="btn secondary" id="export-customers">${icon('download')} 导出客户信息表</button><button class="btn" id="new-customer">${icon('plus')} 新增客户</button></div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">CUSTOMER LIBRARY</div><h1>谁给我们下的单</h1><p>按「客户信息表」的口径维护客户主体、联系人与银行资料；导入订单时按公司简称自动挂上。</p></div><div class="intro-actions"><button class="btn secondary" id="export-customers">${icon('download')} 导出客户信息表</button><button class="btn secondary" id="import-customers">${icon('upload')} 导入客户信息表</button><input type="file" id="customer-file" accept=".xlsx,.csv" hidden><button class="btn" id="new-customer">${icon('plus')} 新增客户</button></div></div>
       ${rows.length ? `<div class="stats-grid">${[['box', '客户数', state.customers.length, '已登记客户', '个'], ['file', '有订单的客户', state.customers.filter(c => customerOrderCount(c.name) > 0).length, '至少下过一单', '个'], ['check', '订单总数', state.orders.length, '含历史批次', '条']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>` : ''}
       <section class="card"><div class="card-header"><div><h2>客户库 <span class="count">${state.customers.length}</span></h2><p class="muted">列与「客户信息表」表头一致：简称、公司名称、信用代码、联系人、电话、订单数；其余字段在编辑里。</p></div><div class="intro-actions"><button class="btn ghost small" id="sync-customers">从历史订单补登记</button></div></div>
       <div class="toolbar toolbar-end"><label class="search-wrap">${icon('search')}<input id="customer-search" class="search-input" value="${esc(customerQuery)}" placeholder="搜索简称、公司、信用代码、联系人" aria-label="搜索客户"></label></div>
-      ${rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>供应商名称（公司简称）</th><th>公司名称</th><th>社会信用代码</th><th>联系人姓名</th><th>联系人电话</th><th>订单数</th><th>操作</th></tr></thead><tbody>${rows.map(c => `<tr><td class="product-cell"><strong>${esc(c.name)}</strong><small>${esc((c.createdAt || '').slice(0, 10))}</small></td><td>${cell(c.companyName)}</td><td class="mono">${cell(c.creditCode)}</td><td>${cell(c.contact)}</td><td class="mono">${cell(c.phone)}</td><td class="numeric">${c.orders}</td><td><button class="text-link" data-edit-customer="${esc(c.id)}">编辑</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('box')}<h3>${state.customers.length ? '没有匹配的客户' : '还没有客户'}</h3><p>${state.customers.length ? '换个关键词试试。' : '导入订单时会按客户名自动登记；也可以点右上角「新增客户」先建好。'}</p></div>`}</section>`;
+      ${rows.length ? `<div class="table-wrap"><table class="data-table pool-table"><thead><tr><th>供应商名称（公司简称）</th><th>公司名称</th><th>社会信用代码</th><th>公司地址</th><th>联系人姓名</th><th>联系人电话</th><th>开户银行</th><th>所在支行</th><th>银行联行号</th><th>银行账号</th><th>营业执照</th><th>经营范围</th><th>订单数</th><th>操作</th></tr></thead><tbody>${rows.map(c => `<tr><td class="product-cell"><strong>${esc(c.name)}</strong><small>${esc((c.createdAt || '').slice(0, 10))}</small></td><td>${cell(c.companyName)}</td><td class="mono">${cell(c.creditCode)}</td><td>${cell(c.companyAddress)}</td><td>${cell(c.contact)}</td><td class="mono">${cell(c.phone)}</td><td>${cell(c.bankName)}</td><td>${cell(c.bankBranch)}</td><td class="mono">${cell(c.bankCode)}</td><td class="mono">${cell(c.bankAccount)}</td><td>${cell(c.license)}</td><td>${cell(c.businessScope)}</td><td class="numeric">${c.orders}</td><td><button class="text-link" data-edit-customer="${esc(c.id)}">编辑</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('box')}<h3>${state.customers.length ? '没有匹配的客户' : '还没有客户'}</h3><p>${state.customers.length ? '换个关键词试试。' : '导入订单时会按客户名自动登记；也可以点右上角「新增客户」先建好。'}</p></div>`}</section>`;
+  }
+  async function importCustomers(file) {
+    if (!file) return;
+    await guardAsync(async () => {
+      const book = await OrderExcel.read(file);
+      let si = book.sheets.findIndex(s => s.rows.some(r => (r || []).some(c => poolNorm(c).includes('公司'))));
+      if (si < 0) si = book.sheets.findIndex(s => s.rows.length > 2);
+      if (si < 0) si = 0;
+      const rows = book.sheets[si].rows;
+      const header = OrderExcel.detectHeader(rows);
+      const headers = rows[header] || [];
+      const map = {};
+      for (const [k, label] of CUSTOMER_FIELDS) {
+        const target = poolNorm(label);
+        let idx = headers.findIndex(h => poolNorm(h) === target);
+        if (idx < 0) idx = headers.findIndex(h => poolNorm(h) && (poolNorm(h).includes(target) || target.includes(poolNorm(h))));
+        map[k] = idx;
+      }
+      if (map.name < 0) { toast('没有找到「公司简称」列，请确认使用客户信息表模板。', 'warning'); return; }
+      const get = (r, k) => { const i = map[k]; if (i < 0) return ''; const v = r[i]; return v == null ? '' : String(v).trim(); };
+      const items = [];
+      for (let i = header + 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        if (!get(r, 'name')) continue;
+        items.push({ row: i + 1, raw: r, name: get(r, 'name') });
+      }
+      if (!items.length) { toast('表里没有可导入的客户行。', 'warning'); return; }
+      const updates = items.filter(it => customerByName(it.name)).length;
+      openModal('导入客户信息表', `
+        <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · 识别 <strong>${items.length}</strong> 个客户。</span></div>
+        <div class="stats-grid compact">${[['新增客户', items.length - updates, '公司简称不存在'], ['更新客户', updates, '按公司简称匹配，覆盖非空字段']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>个</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
+        <p class="muted">按「公司简称」匹配；空单元格不会覆盖已有值。</p>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>行</th><th>公司简称</th><th>公司名称</th><th>联系人</th><th>电话</th></tr></thead><tbody>${items.slice(0, 6).map(it => `<tr><td class="numeric">${it.row}</td><td>${esc(it.name)}</td><td>${esc(get(it.raw, 'companyName') || '—')}</td><td>${esc(get(it.raw, 'contact') || '—')}</td><td class="mono">${esc(get(it.raw, 'phone') || '—')}</td></tr>`).join('')}</tbody></table></div>
+      `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="customer-import-confirm">确认导入</button>`, true);
+      $('#customer-import-confirm').onclick = async () => {
+        let added = 0, updated = 0;
+        for (const it of items) {
+          const r = it.raw;
+          let c = customerByName(it.name);
+          if (!c) { c = { id: uid(), createdAt: new Date().toISOString(), note: '', deposit: '' }; for (const [k] of CUSTOMER_FIELDS) c[k] = ''; c.name = it.name; state.customers.push(c); added++; } else updated++;
+          for (const [k] of CUSTOMER_FIELDS) {
+            const v = get(r, k);
+            if (v !== '') c[k] = v;
+          }
+        }
+        await save(); closeModal(); render();
+        toast(`客户信息表导入完成：新增 ${added} 个、更新 ${updated} 个。`);
+      };
+    });
   }
   async function exportCustomers() {
     const headers = ['供应商名称（公司简称）', '公司名称', '社会信用代码', '公司地址', '联系人姓名', '联系人电话', '开户银行', '所在支行', '银行联行号', '银行账号', '营业执照', '经营范围'];
@@ -327,6 +376,8 @@
     $('#new-customer')?.addEventListener('click', () => customerModal());
     $$('[data-edit-customer]').forEach(b => b.onclick = () => customerModal(b.dataset.editCustomer));
     $('#export-customers')?.addEventListener('click', () => guardAsync(exportCustomers));
+    $('#import-customers')?.addEventListener('click', () => $('#customer-file').click());
+    $('#customer-file')?.addEventListener('change', e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (fl) importCustomers(fl); });
     $('#customer-search')?.addEventListener('input', e => { customerQuery = e.target.value; render(); const el = $('#customer-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
     $('#sync-customers')?.addEventListener('click', async () => {
       let added = 0;
