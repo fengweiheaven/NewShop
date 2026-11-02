@@ -92,7 +92,8 @@
     get envId() { return CFG.envId; },
     get rev() { return lastRev; },
     async load() { return CFG.mode === 'cloudbase' ? cloudLoad() : localLoad(); },
-    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); }
+    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); },
+    readLocal: localLoad
   };
 
   window.OrderStore = OrderStore;

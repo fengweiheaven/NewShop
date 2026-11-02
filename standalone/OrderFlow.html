@@ -800,7 +800,8 @@ window.ORDERFLOW_CONFIG = {
     get envId() { return CFG.envId; },
     get rev() { return lastRev; },
     async load() { return CFG.mode === 'cloudbase' ? cloudLoad() : localLoad(); },
-    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); }
+    async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); },
+    readLocal: localLoad
   };
 
   window.OrderStore = OrderStore;
@@ -918,6 +919,8 @@ window.ORDERFLOW_CONFIG = {
 
   window.OrderAuth = {
     get mode() { return cloudMode ? 'cloudbase' : 'local'; },
+    get app() { return state.app; },
+    get auth() { return state.auth; },
     get user() { return currentUser(); },
     get role() { return state.role; },
     ready: state.ready,
@@ -1038,7 +1041,16 @@ window.ORDERFLOW_CONFIG = {
   }
   async function save() {
     try { await OrderStore.save(copy(state)); }
-    catch(e){ storageFailure=true; toast(e && e.message ? e.message : '保存失败，请立即备份数据。','warning'); }
+    catch(e){
+      const msg = e && e.message ? e.message : '保存失败，请立即备份数据。';
+      if (/已被他人修改/.test(msg)) {
+        try { const latest = await OrderStore.load(); if (latest) { state = latest.state; render(); } } catch (_) {}
+        toast('数据已被他人修改，已为你刷新为最新版本，请重试刚才的操作。', 'warning');
+        return;
+      }
+      storageFailure = true;
+      toast(msg, 'warning');
+    }
   }
   function toast(msg,type='success') {
     const el=document.createElement('div');el.className='toast '+type;el.setAttribute('role','status');el.textContent=msg;$('#toast-root').append(el);setTimeout(()=>el.remove(),5500);
@@ -1110,7 +1122,8 @@ window.ORDERFLOW_CONFIG = {
     const titles={suppliers:['供应商库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],customers:['客户库','维护给我们下订单的客户'],shipment:['运单回填','把快递单号表的订单号补上'],recon:['对账','按客户汇总订单、商品与金额']};
     $('#page-title').textContent=titles[view][0];$('#page-subtitle').textContent=titles[view][1];
     $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
-    $('#content').innerHTML=workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():view==='recon'?renderRecon():renderExport());
+    const localBanner = (OrderStore.mode==='cloudbase' && state.orders.length===0 && state.customers.length===0 && !window.__localImportDone) ? `<div class="alert warning import-local-bar"><span>检测到这是空的云端工作区。如果你之前在这台电脑上用过单机版，可以把本机数据导入云端。</span><button class="btn secondary small" id="import-local">导入本机数据</button></div>` : '';
+    $('#content').innerHTML=localBanner+workflow()+(view==='import'?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():view==='recon'?renderRecon():renderExport());
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
     if (view === 'recon') maybeShowBalanceNotice();
@@ -1538,6 +1551,14 @@ window.ORDERFLOW_CONFIG = {
     $('#import-catalog')?.addEventListener('click',()=>$('#catalog-file').click());
     $('#catalog-file')?.addEventListener('change',e=>catalogImport(e.target.files[0]));
     $$('[data-template]').forEach(b=>b.onclick=()=>templateModal(b.dataset.template));
+    $('#import-local')?.addEventListener('click', () => confirmDialog('导入本机数据', '将把本机浏览器里保存的工作区写入云端，覆盖当前云端空数据。继续？', async () => {
+      const local = await OrderStore.readLocal();
+      if (!local || !local.state) { toast('本机没有找到单机版数据。', 'warning'); return; }
+      state = local.state;
+      window.__localImportDone = true;
+      try { await OrderStore.save(copy(state)); } catch (e) { toast(e && e.message ? e.message : '导入失败。', 'warning'); return; }
+      render(); toast('本机数据已导入云端。');
+    }));
     $('#export-unified')?.addEventListener('click', () => guardAsync(exportUnifiedOrders));
     $('#clear-orders')?.addEventListener('click',()=>confirmDialog('清空全部订单',`将删除 ${state.orders.length} 条明细和 ${state.batches.length} 个批次，供应商库不受影响。`,async()=>{await deleteOrders(state.orders.map(r=>r.id),'订单已清空。');}));
     $$('[data-export-group]').forEach(b=>b.onclick=()=>{selectedExport=b.dataset.exportGroup;render();});

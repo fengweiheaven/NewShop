@@ -110,6 +110,8 @@
 
   window.OrderAuth = {
     get mode() { return cloudMode ? 'cloudbase' : 'local'; },
+    get app() { return state.app; },
+    get auth() { return state.auth; },
     get user() { return currentUser(); },
     get role() { return state.role; },
     ready: state.ready,
