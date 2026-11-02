@@ -476,6 +476,7 @@ python -m http.server 8765 --directory dist
 
 - 只处理**已按供应商格式导出过**的订单：`shipmentOrders()` 过滤条件为 `!excluded && exportedAt && orderNo`。
 - `exportedAt` 由 `markExported()` 在单家导出 / 批量 ZIP 导出成功后写入（存 ISO 时间）。
+- 支持按「导出日期」筛选（今天/本周/上周/本月/上月 + 逐日），默认今天；筛选基于 exportedAt 换算的本地自然日，匹配池与统计卡都跟着变。
 - 页面顶部展示三张统计卡：已导出订单 / 已回填单号 / 待回填；没有已导出订单时提示先去订单采集页导出。
 - 匹配仍按 收货人 + 电话（并辅以地址近似）在已导出订单里找唯一命中，写回 `trackingNo` 与 `carrier`。
 
