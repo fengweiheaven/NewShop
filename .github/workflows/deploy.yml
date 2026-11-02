@@ -1,0 +1,40 @@
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check CloudBase secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.CB_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::CB_KEY 未配置，跳过部署（在仓库 Settings → Secrets 添加 CB_ENV_ID / CB_REGION / CB_KEY）"
+          fi
+
+      - name: Build public/
+        if: steps.check.outputs.skip != 'true'
+        env:
+          CB_ENV_ID: ${{ secrets.CB_ENV_ID }}
+          CB_REGION: ${{ secrets.CB_REGION }}
+          CB_KEY: ${{ secrets.CB_KEY }}
+        run: node scripts/build_pages.js
+
+      - name: Publish to gh-pages
+        if: steps.check.outputs.skip != 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
+          commit_message: 'deploy: ${{ github.event.head_commit.message }}'
