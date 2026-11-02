@@ -122,3 +122,9 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .preset-select{padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#0f172a;margin-right:8px}
 
 .template-actions{display:flex;gap:8px;align-items:center}
+
+/* 合并后的供应商导出区 */
+.format-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:28px 0 14px;padding:18px 22px;background:#fff;border:1px solid #e2e8f0;border-radius:16px}
+.format-head h2{margin:2px 0 4px;font-size:20px}
+.format-head .eyebrow{margin:0}
+.format-head .muted{margin:0;font-size:13px}
