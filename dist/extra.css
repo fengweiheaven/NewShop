@@ -113,3 +113,8 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .pool-table th,.pool-table td{white-space:nowrap;padding:8px 10px}
 .pool-table td{max-width:180px;overflow:hidden;text-overflow:ellipsis}
 .pool-table .product-cell{max-width:220px}
+
+/* 列选择器 */
+.col-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 12px;margin:10px 0}
+.col-item{display:flex;align-items:center;gap:6px;font-size:13px;color:#334155;padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer}
+.col-item:hover{background:#f8fafc}
