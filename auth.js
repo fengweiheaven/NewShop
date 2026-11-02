@@ -118,6 +118,7 @@
     menu.id = 'user-menu';
     menu.innerHTML = '<div class="user-menu-head"><strong>' + (p.name || p.phone || '已登录') + '</strong><small>' + (p.phone || '') + '</small></div>'
       + '<div class="user-menu-role">角色：' + (ROLE_NAMES[p.role] || '未分配') + '</div>'
+      + '<div class="user-menu-version">版本 ' + ((document.querySelector('meta[name=orderflow-build]') || {}).content || 'local') + '</div>'
       + '<button type="button" class="user-menu-item plain" id="nickname-btn">修改昵称</button>'
       + '<button type="button" class="user-menu-item" id="logout-btn">退出登录</button>';
     document.body.append(menu);
