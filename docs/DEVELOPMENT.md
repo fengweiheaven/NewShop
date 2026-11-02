@@ -514,6 +514,13 @@ python -m http.server 8765 --directory dist
 - 首迁：云端工作区为空且本机 IndexedDB 有旧数据时，顶部出现「导入本机数据」横幅，确认后把旧工作区写入云端。
 - 已验证：wrong password → 「用户名或密码不正确」；登录后写入 rev 0→1 且刷新保留；双标签页旧版本写入被拒；本机数据导入后刷新仍在。
 
+## 10.3 发布与新版本提示
+
+- 部署脚本（`patch/deploy_ghp.js`）与 CI（`scripts/build_pages.js`）在发布时注入 `<meta name="orderflow-build">`、`orderflow-repo`，并写出 `version.json`（version/sha/at）。
+- `dist/version-check.js` 每 5 分钟通过 GitHub API 读取 gh-pages 分支的 `version.json`（Accept: application/vnd.github.raw，绕开 CDN 缓存），与页面内嵌 build 比较；不一致时左下角弹出「有新版本可用（版本号）+ 立即刷新」。
+- 背景：GitHub Pages 对 HTML 有 10 分钟 CDN 缓存且忽略查询串，无法即时失效；该提示让用户在 CDN 刷新后第一时间拿到新版。
+- 注意不要用 gh-pages 分支 sha 做比较（它与 main 的 sha 必然不同）。
+
 ## 11. Excel 引擎接口与规则
 
 ### 11.1 `OrderExcel` 接口
