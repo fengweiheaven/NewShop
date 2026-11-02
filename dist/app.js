@@ -412,6 +412,7 @@
       orderNo: String(o.orderNo || ''), date: String(o.date || ''),
       product: p ? p.name : String(o.productName || ''), spec: p ? (p.spec || '') : String(o.sourceSpec || ''),
       sku: p ? (p.supplierSku || '') : '', barcode: p ? (p.barcode || '') : '', orderId: o.id, invoiced: !!o.invoiced, qty, price,
+      carrier: o.carrier || '', trackingNo: o.trackingNo || '', remark: o.remark || '', freight: Number(o.shippingFee) || 0, taxCode: p ? (p.taxCode || '') : '', taxRate: p ? (p.taxRate || '') : '',
       amount: price == null ? null : Math.round(price * qty * 100) / 100,
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
     };
@@ -474,6 +475,20 @@
     }
     const deposit = reconDeposit(name, kind);
     return { deposit, total: Math.round(total * 100) / 100, balance: Math.round((deposit - total) * 100) / 100, noPrice, count };
+  }
+  const RECON_BILL_HEADERS = ['订单编号', '收件人', '收件人电话', '收件人地址', '发货状态', '发货时间', '物流公司', '物流单号', '客户名称', '商品名称', '商品单价', '商品数量', '商品金额（商品单价*商品数量）', '订单金额（含运费）', '运费', '退款说明', '售后凭证', '订单状态', '下单时间', '付款时间', '账期类型', '对账状态', '收款状态', '收款人', '收款方式', '收款时间', '税收编码', '税率', '是否开票', '是否 完成对账备注'];
+  function reconBillValues(l, mode) {
+    const money = v => v == null ? '' : Math.round(v * 100) / 100;
+    const freight = Number(l.freight) || 0;
+    const total = l.amount == null ? '' : Math.round((l.amount + freight) * 100) / 100;
+    return [
+      l.orderNo || '', l.recipient, l.phone, l.address,
+      l.trackingNo ? '已发货' : '待发货', '', l.carrier, l.trackingNo,
+      mode === 'supplier' ? l.supplierKey : l.customer, l.product,
+      money(l.price), l.qty, money(l.amount), total, freight || 0,
+      '', '', l.trackingNo ? '已发货' : '待发货', l.date, '', '',
+      '', '', '', '', '', '', l.taxCode, l.taxRate, l.invoiced ? '是' : '否', l.remark || ''
+    ];
   }
   function reconGroups(rows, mode) {
     const map = new Map();
@@ -545,7 +560,7 @@
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
         ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
-        ${isSup ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>供应商名称</th><th>订单号</th><th>商品名称</th><th>69码</th><th>数量</th><th>供价</th><th>金额</th><th>客户</th><th>收货人</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc(l.supplierKey)}</td><td class="mono">${esc(l.orderNo || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="mono">${esc(l.barcode || '—')}</td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td>${esc(l.customer)}</td><td>${esc(l.recipient || '—')}</td></tr>`).join('')}</tbody></table></div>` : `<div class="table-wrap"><table class="data-table"><thead><tr><th>序号</th><th>年份</th><th>日期</th><th>客户名称</th><th>条码</th><th>产品名称</th><th>数量</th><th>单价</th><th>金额</th><th>是否开票</th></tr></thead><tbody>${lines.slice(0, 200).map((l, i) => `<tr><td class="numeric">${i + 1}</td><td>${esc((String(l.date).match(/^\d{4}/) || [''])[0])}</td><td>${esc(String(l.date).slice(0, 10) || '—')}</td><td>${esc(l.customer)}</td><td class="mono">${esc(l.barcode || '—')}</td><td class="product-cell">${esc(l.product || '—')}<small>${esc(l.spec || '')}</small></td><td class="numeric">${l.qty}</td><td class="numeric">${l.price == null ? '<span class="muted">—</span>' : esc(reconMoney(l.price))}</td><td class="numeric">${l.amount == null ? '<span class="muted">—</span>' : esc(reconMoney(l.amount))}</td><td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td></tr>`).join('')}</tbody></table></div>`}
+        <div class="table-wrap"><table class="data-table pool-table"><thead><tr>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}">${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
   }
   async function importRecon(file) {
@@ -563,12 +578,15 @@
         if (idx < 0) idx = headers.findIndex(h => poolNorm(h) && poolNorm(h).includes(target));
         return idx;
       };
-      const cols = { year: find('年份'), date: find('日期'), customer: find('客户名称'), barcode: find('条码'), product: find('产品名称'), qty: find('数量'), price: find('单价'), invoice: find('是否开票') };
-      if (cols.product < 0 || cols.invoice < 0) { toast('没有找到「产品名称」或「是否开票」列，请使用对账格式表头。', 'warning'); return; }
+      const productCol = find('商品名称') >= 0 ? find('商品名称') : find('产品名称');
+      const cols = { orderNo: find('订单编号'), year: find('年份'), date: find('下单时间') >= 0 ? find('下单时间') : find('日期'), customer: find('客户名称'), barcode: find('条码'), product: productCol, qty: find('商品数量') >= 0 ? find('商品数量') : find('数量'), price: find('商品单价') >= 0 ? find('商品单价') : find('单价'), invoice: find('是否开票') };
+      if (cols.product < 0 || cols.invoice < 0) { toast('没有找到「商品名称」或「是否开票」列，请使用对账格式表头。', 'warning'); return; }
       const get = (r, i) => { if (i < 0) return ''; const v = r[i]; return v == null ? '' : String(v).trim(); };
       const truthy = v => /^(是|已开票|开票|y|yes|true|1)$/i.test(v);
       const falsy = v => /^(否|未开票|不开票|n|no|false|0)$/i.test(v);
       const lines = reconBase().map(o => reconLine(o, 'customer'));
+      const byNo = new Map();
+      for (const l of lines) if (l.orderNo) byNo.set(norm(l.orderNo), (byNo.get(norm(l.orderNo)) || []).concat(l));
       const key = l => [norm(l.customer), String(l.date).slice(0, 10), norm(l.product), String(l.qty), String(l.price == null ? '' : l.price)].join('|');
       const byKey = new Map();
       for (const l of lines) { const k = key(l); byKey.set(k, (byKey.get(k) || []).concat(l)); }
@@ -581,8 +599,9 @@
         const want = truthy(mark) ? true : falsy(mark) ? false : null;
         if (want === null) continue;
         const date = String(get(r, cols.date)).slice(0, 10);
+        const no = get(r, cols.orderNo);
         const k = [norm(get(r, cols.customer)), date, norm(product), String(get(r, cols.qty)), String(get(r, cols.price))].join('|');
-        const cands = byKey.get(k) || [];
+        const cands = (no && byNo.get(norm(no))) || byKey.get(k) || [];
         items.push({ row: i + 1, product, customer: get(r, cols.customer), date, mark, want, orderId: cands.length === 1 ? cands[0].orderId : '', reason: cands.length === 1 ? '' : (cands.length ? '匹配到多条明细，已跳过' : '未找到对应订单明细') });
       }
       if (!items.length) { toast('表里没有可回填的「是否开票」数据。', 'warning'); return; }
@@ -591,8 +610,8 @@
       const changes = ok.filter(it => { const o = state.orders.find(x => x.id === it.orderId); return o && !!o.invoiced !== it.want; });
       openModal('导入对账（回填开票状态）', `
         <div class="alert info">${icon('file')}<span>已读取 <strong>${esc(file.name)}</strong> · ${items.length} 行带「是否开票」标记。</span></div>
-        <div class="stats-grid compact">${[['可回填', ok.length, '按客户+日期+产品+数量+单价唯一匹配'], ['将变更', changes.length, '与当前开票标记不同'], ['未匹配', bad.length, '明细对不上，跳过']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
-        <p class="muted">只回填「是否开票」，不改单价与金额。匹配用的五要素必须完全一致，避免改错行。</p>
+        <div class="stats-grid compact">${[['可回填', ok.length, '优先按订单编号匹配，其次按客户+日期+商品+数量+单价'], ['将变更', changes.length, '与当前开票标记不同'], ['未匹配', bad.length, '明细对不上，跳过']].map(([l, v, n]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${esc(n)}</div></article>`).join('')}</div>
+        <p class="muted">只回填「是否开票」，不改单价与金额。订单编号匹配不到时才用五要素，且必须唯一，避免改错行。</p>
         ${bad.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>行</th><th>客户</th><th>日期</th><th>产品</th><th>原因</th></tr></thead><tbody>${bad.slice(0, 5).map(it => `<tr><td class="numeric">${it.row}</td><td>${esc(it.customer)}</td><td>${esc(it.date)}</td><td>${esc(it.product)}</td><td>${esc(it.reason)}</td></tr>`).join('')}</tbody></table></div>` : ''}
       `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="recon-import-confirm" ${ok.length ? '' : 'disabled'}>确认回填</button>`, true);
       const btn = $('#recon-import-confirm');
@@ -618,14 +637,10 @@
     const own = pick ? rows.filter(o => keyOf(o) === pick) : rows;
     const lines = own.map(o => reconLine(o, mode));
     const isSup = mode === 'supplier';
-    const headers = isSup
-      ? ['订单号', '下单时间', '供应商', '供应商编码', '商品', '规格', '数量', '供价', '金额', '客户', '收货人', '电话', '地址', '状态']
-      : ['序号', '年份', '日期', '客户名称', '条码', '产品名称', '数量', '单价', '金额', '是否开票'];
-    const data = lines.map(l => isSup
-      ? [l.orderNo, l.date, l.supplierKey, l.sku, l.product, l.spec, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.customer, l.recipient, l.phone, l.address, l.status]
-      : [lines.indexOf(l) + 1, (String(l.date).match(/^\d{4}/) || [''])[0], l.date, l.customer, l.barcode, l.product, l.qty, l.price == null ? '' : l.price, l.amount == null ? '' : l.amount, l.invoiced ? '是' : '否']);
+    const headers = RECON_BILL_HEADERS;
+    const data = lines.map(l => reconBillValues(l, mode));
     const name = pick ? `${pick}_${isSup ? '供应商' : '客户'}对账` : `全部${isSup ? '供应商' : '客户'}_对账`;
-    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: isSup ? '供应商对账' : '对账', filename: `${name}_${stamp()}.xlsx` });
+    await OrderExcel.downloadWorkbook({ headers, rows: data, sheetName: '对账单明细', filename: `${name}_${stamp()}.xlsx` });
     if (!isSup) {
       const acc = pick ? reconAccount(pick) : groups.reduce((a, g) => ({ deposit: a.deposit + (g.deposit || 0), total: a.total + (g.total || 0), balance: a.balance + (g.balance || 0) }), { deposit: 0, total: 0, balance: 0 });
       toast(`已导出 ${data.length} 条客户对账；充值 ¥${reconMoney(acc.deposit)} · 应收 ¥${reconMoney(acc.total)} · 余额 ¥${reconMoney(acc.balance)}。`);
