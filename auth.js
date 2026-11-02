@@ -12,15 +12,16 @@
 
   function loadSdk() {
     if (window.cloudbase) return Promise.resolve();
-    return new Promise((resolve, reject) => {
+    const attempt = retry => new Promise((resolve, reject) => {
       const el = document.createElement('script');
-      el.src = 'vendor/cloudbase.iife.js';
-      el.onload = resolve;
+      el.src = 'vendor/cloudbase.iife.js' + (retry ? '?r=' + Date.now() : '');
+      el.async = true;
+      el.onload = () => (window.cloudbase ? resolve() : reject(new Error('云开发 SDK 未就绪')));
       el.onerror = () => reject(new Error('云开发 SDK 加载失败'));
       document.head.append(el);
     });
+    return attempt(false).catch(() => attempt(true));
   }
-
   async function ensureApp() {
     if (state.app) return state.app;
     await loadSdk();
@@ -78,6 +79,7 @@
         <label class="field"><span>手机号</span><input name="username" inputmode="tel" autocomplete="username" required placeholder="11 位手机号"></label>
         <label class="field"><span>密码</span><input name="password" type="password" autocomplete="current-password" required placeholder="密码"></label>
         <p class="form-error" id="auth-error">${message || ''}</p>
+        ${state.auth ? '' : '<button class="btn secondary" type="button" id="auth-retry" style="margin-bottom:6px">重新连接</button>'}
         <button class="btn" type="submit" id="auth-submit">登录</button>
         <p class="auth-foot">账号由管理员在云开发控制台创建</p>
       </form>`;
@@ -93,6 +95,7 @@
       if (!username || !password) { err.textContent = '请填写手机号和密码。'; return; }
       btn.disabled = true; btn.textContent = '登录中…'; err.textContent = '';
       try {
+        if (!state.auth) { try { await ensureApp(); } catch (e2) { throw new Error('加载云开发 SDK 失败，请检查网络后重试。'); } }
         const res = await state.auth.signInWithPassword({ username, password });
         if (res && res.error) throw new Error(res.error.message || '登录失败');
         state.user = currentUser();
@@ -107,6 +110,8 @@
         btn.disabled = false; btn.textContent = '登录';
       }
     };
+    const retry = document.getElementById('auth-retry');
+    if (retry) retry.onclick = async () => { retry.disabled = true; retry.textContent = '连接中…'; try { await ensureApp(); await start(); } catch (e) { err.textContent = (e && e.message) || '连接失败，请检查网络。'; retry.disabled = false; retry.textContent = '重新连接'; } };
     form.querySelector('[name=username]')?.focus();
   }
 
