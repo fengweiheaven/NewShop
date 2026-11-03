@@ -740,8 +740,8 @@
         <button class="export-group ${pick === '' ? 'active' : ''}" data-recon-group=""><span class="supplier-avatar">全</span><span><strong>全部${groupLabel}</strong><small>${rows.length} 条明细</small></span>${icon('arrow')}</button>
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
-        ${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
-        <div class="table-wrap"><table class="data-table pool-table"><thead><tr>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}">${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+        ${lines.length ? `<div class="recon-bulk"><span class="muted" id="recon-pick-count">已选 0 条</span><button type="button" class="btn ghost small danger-ghost" id="recon-bulk-del" disabled>删除所选</button></div>` : ''}${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
+        <div class="table-wrap"><table class="data-table pool-table"><thead><tr><th class="pick-col"><input type="checkbox" id="recon-pick-all" aria-label="全选"></th>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}<th class="pick-col">操作</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="pick-col"><input type="checkbox" data-recon-pick="${esc(l.orderId)}" aria-label="选择"></td>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}">${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}<td class="pick-col"><button type="button" class="text-link danger" data-recon-del="${esc(l.orderId)}">删除</button></td></tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
   }
     async function importRecon(file) {
@@ -866,6 +866,32 @@
     $('#recon-export')?.addEventListener('click', () => guardAsync(exportRecon));
     $('#recon-import')?.addEventListener('click', () => $('#recon-file').click());
     $('#recon-file')?.addEventListener('change', e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (fl) importRecon(fl); });
+    const excludeRecon = ids => {
+      const set = new Set(ids.filter(Boolean));
+      if (!set.size) return;
+      confirmDialog('从账单移除', `将从账单移除 ${set.size} 条明细。订单本身不会删除，可在订单页的「已排除」里恢复。`, async () => {
+        let n = 0;
+        for (const o of state.orders) if (set.has(o.id) && !o.excluded) { o.excluded = true; n++; }
+        try { refreshBatchExportFlags(); } catch (e) {}
+        invalidate(); await save(); render();
+        toast(`已从账单移除 ${n} 条明细。`);
+      });
+    };
+    const syncPick = () => {
+      const picks = $$('[data-recon-pick]');
+      const checked = picks.filter(cb => cb.checked);
+      const cnt = $('#recon-pick-count'), bulk = $('#recon-bulk-del'), all = $('#recon-pick-all');
+      if (cnt) cnt.textContent = `已选 ${checked.length} 条`;
+      if (bulk) bulk.disabled = !checked.length;
+      if (all) { all.checked = picks.length > 0 && checked.length === picks.length; all.indeterminate = checked.length > 0 && checked.length < picks.length; }
+    };
+    $('#recon-pick-all')?.addEventListener('change', e => {
+      $$('[data-recon-pick]').forEach(cb => cb.checked = e.target.checked);
+      syncPick();
+    });
+    $$('[data-recon-pick]').forEach(cb => cb.onchange = syncPick);
+    $$('[data-recon-del]').forEach(b => b.onclick = () => excludeRecon([b.dataset.reconDel]));
+    $('#recon-bulk-del')?.addEventListener('click', () => excludeRecon($$('[data-recon-pick]').filter(cb => cb.checked).map(cb => cb.dataset.reconPick)));
     $$('[data-invoice]').forEach(cb => cb.onchange = async () => {
       const o = state.orders.find(x => x.id === cb.dataset.invoice);
       if (!o) return;
