@@ -1007,43 +1007,62 @@
     if (!p) return;
     const custs = state.customers.map(c => c.name);
     if (!Array.isArray(p.quotes)) p.quotes = [];
-    let draft = p.quotes.map(q => ({ customer: q.customer, price: q.price }));
-    const syncDraft = () => {
-      $$('[data-qprice]').forEach(inp => {
-        const i = Number(inp.dataset.qprice);
-        if (draft[i]) draft[i].price = inp.value === '' ? '' : Math.round((Number(inp.value) || 0) * 100) / 100;
-      });
-    };
-    const draw = () => {
-      const chosen = new Set(draft.map(d => norm(d.customer)));
-      openModal(`报价单 · ${p.name}`, `
-        <p class="muted">勾选需要报价的客户，填好价格后保存。没勾选的客户不会计入对账金额。</p>
-        ${custs.length ? `<div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${chosen.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
-        <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
-        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" placeholder="输入报价" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">移除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">上面勾选客户后，这里会列出报价行</td></tr>'}
-        </tbody></table></div>
-      `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
-      $$('[data-qpick]').forEach(cb => cb.onchange = () => {
-        syncDraft();
-        const name = cb.dataset.qpick;
-        if (cb.checked) { if (!draft.some(d => norm(d.customer) === norm(name))) draft.push({ customer: name, price: '' }); }
-        else draft = draft.filter(d => norm(d.customer) !== norm(name));
-        draw();
-        const inputs = $$('[data-qprice]');
-        if (cb.checked && inputs.length) inputs[inputs.length - 1].focus();
-      });
-      $$('[data-qdel]').forEach(b => b.onclick = () => { syncDraft(); draft.splice(Number(b.dataset.qdel), 1); draw(); });
-      $('#q-save').onclick = async () => {
-        syncDraft();
-        const kept = draft.filter(d => String(d.customer || '').trim());
-        const blank = kept.filter(d => d.price === '' || !Number.isFinite(Number(d.price)));
-        p.quotes = kept.filter(d => d.price !== '' && Number.isFinite(Number(d.price))).map(d => ({ customer: String(d.customer).trim(), price: Number(d.price) }));
-        p.quotesInit = true;
-        await save(); closeModal(); render();
-        toast(blank.length ? `已保存 ${p.quotes.length} 条报价，${blank.length} 个客户没填价格已忽略。` : `已保存 ${p.quotes.length} 条客户报价。`);
+    const current = new Map(p.quotes.map(q => [norm(q.customer), { customer: q.customer, price: q.price }]));
+    const rowHtml = (name, price) => `<tr data-qrow="${esc(name)}"><td>${esc(name)}</td><td><input type="number" min="0" step="0.01" data-qprice value="${esc(price == null ? '' : price)}" placeholder="输入报价" aria-label="${esc(name)} 报价"></td><td><button type="button" class="text-link danger" data-qdel>移除</button></td></tr>`;
+    openModal(`报价单 · ${p.name}`, `
+      <p class="muted">勾选需要报价的客户，填好价格后保存。没勾选的客户不会计入对账金额。</p>
+      ${custs.length ? `<div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${current.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
+      <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody id="q-body">
+        ${[...current.values()].map(d => rowHtml(d.customer, d.price)).join('')}
+      </tbody></table></div>
+      <p class="muted" id="q-empty" style="margin-top:10px;${current.size ? 'display:none' : ''}">上面勾选客户后，这里会列出报价行。</p>
+    `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
+
+    const body = $('#q-body');
+    const emptyHint = $('#q-empty');
+    const refreshEmpty = () => { if (emptyHint) emptyHint.style.display = body.querySelector('tr[data-qrow]') ? 'none' : ''; };
+    const bindRow = tr => {
+      tr.querySelector('[data-qdel]').onclick = () => {
+        const name = tr.dataset.qrow;
+        tr.remove();
+        const cb = [...document.querySelectorAll('[data-qpick]')].find(c => c.dataset.qpick === name);
+        if (cb) cb.checked = false;
+        refreshEmpty();
       };
     };
-    draw();
+    body.querySelectorAll('tr[data-qrow]').forEach(bindRow);
+
+    $$('[data-qpick]').forEach(cb => cb.onchange = () => {
+      const name = cb.dataset.qpick;
+      const existing = body.querySelector(`tr[data-qrow="${name.replace(/"/g, '\\"')}"]`);
+      if (cb.checked) {
+        if (!existing) {
+          const tr = document.createElement('tbody');
+          tr.innerHTML = rowHtml(name, '');
+          const node = tr.firstElementChild;
+          body.appendChild(node);
+          bindRow(node);
+          node.querySelector('[data-qprice]').focus();
+        }
+      } else if (existing) {
+        existing.remove();
+      }
+      refreshEmpty();
+    });
+
+    $('#q-save').onclick = async () => {
+      const quotes = [];
+      let blank = 0;
+      body.querySelectorAll('tr[data-qrow]').forEach(tr => {
+        const val = tr.querySelector('[data-qprice]').value.trim();
+        if (val === '' || !Number.isFinite(Number(val))) { blank++; return; }
+        quotes.push({ customer: tr.dataset.qrow, price: Math.round(Number(val) * 100) / 100 });
+      });
+      p.quotes = quotes;
+      p.quotesInit = true;
+      await save(); closeModal(); render();
+      toast(blank ? `已保存 ${quotes.length} 条报价，${blank} 个客户没填价格已忽略。` : `已保存 ${quotes.length} 条客户报价。`);
+    };
   }
   const POOL_COMMON = ['no', 'supplier', 'name', 'spec', 'netContent', 'cost', 'suggestPrice', 'internalSku', 'supplierSku', 'barcode', 'status'];
   const poolCell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
