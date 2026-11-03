@@ -534,8 +534,9 @@
       const cost = p && p.cost !== '' && p.cost != null ? Number(p.cost) : NaN;
       price = Number.isFinite(cost) ? cost : null;
     } else {
+      const quoted = p ? quotePrice(p, customer) : null;
       const raw = o.unitPrice === '' || o.unitPrice == null ? '' : String(o.unitPrice).trim();
-      price = raw === '' ? null : (Number(raw) || 0);
+      price = quoted != null ? quoted : (raw === '' ? null : (Number(raw) || 0));
     }
     return {
       customer, supplier: supplier || '未分配供应商', supplierKey: supplier || '未分配供应商',
@@ -680,7 +681,7 @@
     };
     return `<div class="page-intro"><div><div class="eyebrow">RECONCILIATION</div><h1>谁的单，多少钱，一页看清</h1><p>${isSup ? '按供应商汇总应付款：商品、数量、供价、金额。' : '按客户汇总应收款：商品、数量、单价、金额；填了充值金额还能看账户余额。'}已排除的明细不计入。</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${isSup ? '' : 'active'}" data-recon-mode="customer">客户对账</button><button class="tab ${isSup ? 'active' : ''}" data-recon-mode="supplier">供应商对账</button></div>${rows.length ? `<button class="btn secondary" id="recon-import">${icon('upload')} 导入${groupLabel}对账</button><button class="btn secondary" id="recon-export">${icon('download')} 导出${groupLabel}对账单</button>` : ''}<input type="file" id="recon-file" accept=".xlsx,.csv" hidden></div></div>
       ${!rows.length ? `<section class="card"><div class="empty-state">${icon('file')}<h3>还没有可对账的订单</h3><p>先到「订单采集与匹配」导入并匹配订单。</p><button class="btn" data-go="import">前往订单采集与匹配</button></div></section>` : `
-      <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '单价'}` : `按${isSup ? '供价' : '订单单价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
+      <div class="stats-grid">${[['box', groupLabel + '数', groups.length, `有订单的${groupLabel}`, '家'], ['file', '订单明细', lines.length, pick || `全部${groupLabel}`, '条'], ['check', '商品件数', units, '按订单数量累计', '件'], ['clock', isSup ? '应付合计' : '应收合计', reconMoney(amount), noPrice ? `还有 ${noPrice} 条缺${isSup ? '供价' : '客户报价'}` : `按${isSup ? '供价' : '客户报价'}计算`, '元']].map(([ic, l, v, n, u]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>
       <section class="card recon-account"><div class="recon-account-row">
         <div class="recon-field"><span>${pick ? esc(pick) + (isSup ? ' 已充值金额' : ' 总充值金额') : `全部${groupLabel}${isSup ? '已充值' : '充值'}合计`}</span><strong>¥${reconMoney(account.deposit)}</strong></div>
         ${pick ? `<div class="recon-actions"><button class="btn secondary small" id="recon-recharge">${icon('plus')} 充值</button><button class="btn ghost small" id="recon-recharge-list">充值记录</button></div>` : `<div class="recon-hint">在左侧选一个${groupLabel}后可充值、查看充值记录</div>`}
@@ -961,6 +962,13 @@
   function visibleProducts() {
     const q = norm(query);
     return state.products.filter(p => (supplierFilter === 'all' || p.supplierId === supplierFilter) && (!q || norm([p.name, p.supplierSku, p.internalSku, p.brand, p.barcode, p.category, ...p.aliases.map(a => a.name || a.code)].join(' ')).includes(q)));
+  }
+  function quotePrice(product, customerName) {
+    if (!product || !Array.isArray(product.quotes)) return null;
+    const q = product.quotes.find(x => norm(x.customer) === norm(customerName));
+    if (!q) return null;
+    const n = Number(q.price);
+    return Number.isFinite(n) ? n : null;
   }
   function quoteModal(pid) {
     const p = pById(pid);
