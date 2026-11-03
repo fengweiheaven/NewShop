@@ -237,3 +237,7 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .quote-check:hover{border-color:#b9d8d2;background:#f6fbfa}
 .quote-check input{accent-color:#0e7a70;margin:0}
 .quote-check:has(input:checked){border-color:#0e7a70;background:#eaf6f3;color:#0b5f57;font-weight:600}
+
+/* 商品名称两列：完整展示、自动换行 */
+.data-table td.product-cell{white-space:normal}
+.name-wrap{display:block;max-width:230px;white-space:normal;word-break:break-word;line-height:1.5}
