@@ -241,3 +241,8 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 /* 商品名称两列：完整展示、自动换行 */
 .data-table td.product-cell{white-space:normal}
 .name-wrap{display:block;max-width:230px;white-space:normal;word-break:break-word;line-height:1.5}
+
+/* 账单选择与批量删除 */
+.pool-table .pick-col{width:34px;text-align:center;padding-left:8px;padding-right:0}
+.pool-table .pick-col input{accent-color:#0e7a70}
+.recon-bulk{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 8px}
