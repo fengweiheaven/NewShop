@@ -374,6 +374,7 @@
     }).join('')}</tbody></table></div>${pagination(rows.length)}` : `<div class="empty-state">${icon('file')}<h3>${activeRows().length ? (dateFilter==='all' ? '没有符合条件的明细' : '该日期没有上传订单') : '本次还没有订单'}</h3><p>${activeRows().length ? (dateFilter==='all' ? '尝试调整筛选条件或搜索内容。' : '日期筛选只按上传当天匹配，切换到「全部」或其他日期查看。') : '导入新订单，或在“选择本次批次 / 历史”中勾选历史批次。'}</p></div>`;
   }
   async function exportUnifiedOrders() {
+    if (!(await confirmExportIssues())) return;
     const rows = activeRows().filter(r => !r.excluded);
     if (!rows.length) { toast('本次没有可导出的订单。', 'warning'); return; }
     const headers = ['序号', '供应商名称', '订单号', '商品名称', '69码', '数量', '收件人', '电话', '详细地址', '物流公司', '快递单号', '导入时间', '是否处理'];
@@ -1750,8 +1751,35 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   }
   const safeName=s=>s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,70)||'供应商';
   async function exportBytes(g){const errs=exportIssues(g);if(errs.length)throw Error(errs.join('；'));const t=effectiveTemplate(g.supplier);return OrderExcel.buildWorkbook({headers:t.columns.map(c=>c.header),rows:g.rows.map(r=>t.columns.map(c=>templateValue(r,c))),sheetName:t.sheetName||'Sheet1',widths:t.widths});}
-  async function exportOne(g){if(!g)return;const bytes=await exportBytes(g);OrderExcel.downloadBlob(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`${safeName(g.supplier.name)}_导单_${stamp()}.xlsx`);markExported(g.rows);history(`导出 ${g.supplier.name} ${g.rows.length} 行`);await save();toast('供应商订单已导出。');}
-  async function exportAll(){const zip=new JSZip(),gs=exportGroups();if(!gs.length)return;for(let i=0;i<gs.length;i++){const g=gs[i],bytes=await exportBytes(g);zip.file(`${String(i+1).padStart(2,'0')}_${safeName(g.supplier.name)}_导单_${stamp()}.xlsx`,bytes);}const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});OrderExcel.downloadBlob(blob,`供应商订单_${stamp()}.zip`);markExported(gs.flatMap(g=>g.rows));history(`批量导出 ${gs.length} 家供应商`);await save();toast(`已打包 ${gs.length} 家供应商的订单。`);}
+  function pendingExportRows() {
+    return visibleOrders().filter(r => {
+      const k = status(r).key;
+      return k !== 'ready' && k !== 'excluded';
+    });
+  }
+  function confirmExportIssues() {
+    const bad = pendingExportRows();
+    if (!bad.length) return Promise.resolve(true);
+    const byReason = new Map();
+    for (const r of bad) {
+      const stt = status(r);
+      byReason.set(stt.label, (byReason.get(stt.label) || 0) + 1);
+    }
+    const scope = dateFilter === 'today' ? '今天' : (DATE_RANGES.find(([k]) => k === dateFilter) || [])[1] || '当前筛选';
+    return new Promise(resolve => {
+      openModal('还有订单没匹配', `
+        <div class="alert warning">${icon('shield')}<span>${esc(scope)}的订单里还有 <strong>${bad.length}</strong> 条没有匹配完成，直接导出会被跳过。</span></div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>状态</th><th>条数</th></tr></thead><tbody>
+          ${[...byReason.entries()].map(([k, n]) => `<tr><td>${esc(k)}</td><td class="numeric">${n}</td></tr>`).join('')}
+        </tbody></table></div>
+        <p class="muted">建议先处理这些订单，匹配完成后再导出，避免漏发。</p>
+      `, `<button class="btn secondary" id="export-go-match">先去匹配</button><button class="btn danger-ghost" id="export-force">仍然导出</button>`, true);
+      $('#export-go-match').onclick = () => { closeModal(); filter = 'pending'; render(); resolve(false); };
+      $('#export-force').onclick = () => { closeModal(); resolve(true); };
+    });
+  }
+  async function exportOne(g){if(!g)return;if(!(await confirmExportIssues()))return;const bytes=await exportBytes(g);OrderExcel.downloadBlob(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`${safeName(g.supplier.name)}_导单_${stamp()}.xlsx`);markExported(g.rows);history(`导出 ${g.supplier.name} ${g.rows.length} 行`);await save();toast('供应商订单已导出。');}
+  async function exportAll(){const zip=new JSZip(),gs=exportGroups();if(!gs.length)return;if(!(await confirmExportIssues()))return;for(let i=0;i<gs.length;i++){const g=gs[i],bytes=await exportBytes(g);zip.file(`${String(i+1).padStart(2,'0')}_${safeName(g.supplier.name)}_导单_${stamp()}.xlsx`,bytes);}const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});OrderExcel.downloadBlob(blob,`供应商订单_${stamp()}.zip`);markExported(gs.flatMap(g=>g.rows));history(`批量导出 ${gs.length} 家供应商`);await save();toast(`已打包 ${gs.length} 家供应商的订单。`);}
   async function deleteOrders(ids, message) {
     const set = new Set(ids);
     if (!set.size) return;
