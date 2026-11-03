@@ -41,7 +41,7 @@
   };
   const icon = (name,cls='') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.file}</svg>`;
   const FIELDS = [
-    ['orderNo','订单号',['订单编号','订单号','订单编码','订单ID','外部订单号','订单号码']],
+    ['orderNo','订单号',['订单编号','订单号','订单编码','外部订单号','订单号码']],
     ['productName','商品名称',['商品名称','产品名称','货品名称','品名','名称','商品','标准商品名','商品标题','宝贝名称']],
     ['quantity','数量',['购买数量','商品数量','数量','件数','订购数量','销售数量','采购数量','发货数量']],
     ['recipient','收货人',['收货人/提货人','收货人','收件人','收货姓名','收件姓名','收货人姓名','收件人姓名']],
@@ -50,7 +50,7 @@
     ['sourceSku','客户商品编码',['SKU码','SKU编码','商品编码','产品编码','货品编码','商家编码','sku']],
     ['barcode','69码 / 条码',['69码','条码','商品条码','条形码','国际条码','EAN','UPC']],
     ['sourceSpec','来源规格',['规格属性','商品规格','规格','产品规格','商品规格信息','规格信息','颜色及规格','属性']],
-    ['sourceLineId','订单明细ID',['订单商品编号','订单明细编号','子订单编号','明细编号']],
+    ['sourceLineId','订单明细ID',['订单明细编号','子订单编号','明细编号','子项ID','子项编号','订单商品编号']],
     ['buyerNickname','买家昵称',['买家昵称','买家账号','客户昵称']],
     ['remark','备注',['买家备注','客户备注','订单备注','备注']],
     ['date','下单时间',['下单时间','支付时间','付款完成时间','订单日期','时间','订单时间','创建时间','付款时间']],
@@ -1223,7 +1223,8 @@
         for(const n of names){
           const na=norm(n);if(!na)continue;
           const single=[...na].length===1; // 单字别名（省/市/区）只接受完全相同，避免吞掉整段地址
-          const score=t===na?3:(!single&&t.startsWith(na)?2:(!single&&t.includes(na)?1:0));
+          const base=t===na?3:(!single&&t.startsWith(na)?2:(!single&&t.includes(na)?1:0));
+          const score=base?base*100+(names.length-names.indexOf(n)):0;
           if(score>bestScore){bestScore=score;best=i;}
         }
       });
