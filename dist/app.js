@@ -178,6 +178,9 @@
   function isBarcodeLike(v){const d=normCode(v);return d.length>=8&&d.length<=14;}
   function bigrams(s){const out=[];for(let i=0;i<s.length-1;i++)out.push(s.slice(i,i+2));return out;}
   function diceSim(a,b){if(!a||!b)return 0;if(a===b)return 1;const A=bigrams(a),B=bigrams(b);if(!A.length||!B.length)return 0;const m=new Map();for(const g of A)m.set(g,(m.get(g)||0)+1);let inter=0;for(const g of B){const c=m.get(g)||0;if(c){inter++;m.set(g,c-1);}}return (2*inter)/(A.length+B.length);}
+  function stripSpecText(v) {
+    return String(v == null ? '' : v).toLowerCase().replace(/[\s,，、;；/\\|·\-—_（）()【】\[\]]+/g, '');
+  }
   function specKey(v) {
     const t = String(v == null ? '' : v).toLowerCase().replace(/[\s,，、;；/\\|·\-—_（）()【】\[\]]+/g, ' ').trim();
     if (!t) return '';
@@ -187,7 +190,15 @@
     const bc=normCode(row.barcode)||(isBarcodeLike(row.sourceSku)?normCode(row.sourceSku):'');
     if(bc){const hits=state.products.filter(p=>normCode(p.barcode)===bc);if(hits.length===1)return{product:hits[0],via:'barcode'};if(hits.length>1)return{candidates:hits,via:'barcode'};}
     const code=norm(row.sourceSku);
-    const aliasHits=state.products.filter(p=>p.aliases.some(a=>(!a.customer||norm(a.customer)===norm(row.customer))&&(!a.spec||norm(a.spec)===norm(row.sourceSpec))&&((a.code&&code&&norm(a.code)===code)||(!a.code&&a.name&&norm(a.name)===norm(row.productName)))));
+    const aliasHits=state.products.filter(p=>p.aliases.some(a=>{
+      if(a.customer&&norm(a.customer)!==norm(row.customer))return false;
+      if(a.spec&&specKey(a.spec)!==specKey(row.sourceSpec))return false;
+      if(a.code&&code&&norm(a.code)===code)return true;
+      if(!a.name)return false;
+      const na=stripSpecText(a.name),np=stripSpecText(row.productName),ns=stripSpecText(row.sourceSpec),as=stripSpecText(a.spec);
+      if(!np)return false;
+      return na===np||(ns&&na===np+ns)||(as&&na===np+as);
+    }));
     if(aliasHits.length===1)return{product:aliasHits[0],via:'alias'};
     if(aliasHits.length>1)return{candidates:aliasHits,via:'alias'};
     const rowName=norm(row.productName),rowSpec=norm(row.sourceSpec);
