@@ -74,6 +74,20 @@
   const invalidate = () => { state.unified=null; };
   const history = action => {state.history.unshift({time:new Date().toISOString(),action});state.history=state.history.slice(0,50);};
   const activeRows = () => {const ids=new Set(state.activeBatchIds);return state.orders.filter(r=>ids.has(r.batchId));};
+    function repairOrderNo(v) {
+    if (v.orderNoRepaired) return 0;
+    let n = 0;
+    for (const o of v.orders || []) {
+      if (!o.raw) continue;
+      const key = Object.keys(o.raw).find(k => norm(k) === '订单编号' || norm(k) === '订单号');
+      if (!key) continue;
+      const val = String(o.raw[key] == null ? '' : o.raw[key]).trim();
+      if (!val) continue;
+      if (String(o.orderNo || '').trim() !== val) { o.orderNo = val; n++; }
+    }
+    v.orderNoRepaired = true;
+    return n;
+  }
   function migrateScope(v){
     if(!Array.isArray(v.activeBatchIds))v.activeBatchIds=v.batches.filter(b=>!b.exportedAt).map(b=>b.id);
     const ids=new Set(v.batches.map(b=>b.id));v.activeBatchIds=[...new Set(v.activeBatchIds.filter(id=>ids.has(id)))];
@@ -82,6 +96,7 @@
     for(const s of v.suppliers)if(s.derived===undefined)s.derived=false;
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
+    repairOrderNo(v);
     for(const c of v.customers)for(const k of ['companyName','creditCode','companyAddress','contact','phone','bankName','bankBranch','bankCode','bankAccount','license','businessScope'])if(c[k]===undefined)c[k]='';
     for(const o of v.orders){if(o.carrier===undefined)o.carrier='';if(o.trackingNo===undefined)o.trackingNo='';if(o.barcode===undefined)o.barcode='';if(o.invoiced===undefined)o.invoiced=false;
     for(const k of ['paidAt','buyerMessage','freight','paidAmount','postcode','cod','codAmount','productType','erpCode','reconStatus','payStatus','payee','payMethod','supReconStatus','supPayStatus','supPayee','supPayMethod','supPaidAt'])if(o[k]===undefined)o[k]='';}
