@@ -97,6 +97,7 @@
     if(!Array.isArray(v.customers)){v.customers=[];const seen=new Set();for(const o of v.orders){const n=String(o.customer||'').trim();if(!n)continue;const k=norm(n);if(seen.has(k))continue;seen.add(k);v.customers.push({id:uid(),name:n,contact:'',phone:'',note:'',deposit:'',createdAt:new Date().toISOString()});}}
     for(const c of v.customers)if(c.deposit===undefined)c.deposit='';
     repairOrderNo(v);
+    if(!v.specExtracted){for(const o of v.orders||[]){if(String(o.sourceSpec||'').trim())continue;const sp=splitNameSpec(o.productName);if(sp.spec){o.sourceSpec=sp.spec;o.productName=sp.name;}}v.specExtracted=true;}
     for(const c of v.customers)for(const k of ['companyName','creditCode','companyAddress','contact','phone','bankName','bankBranch','bankCode','bankAccount','license','businessScope'])if(c[k]===undefined)c[k]='';
     for(const o of v.orders){if(o.carrier===undefined)o.carrier='';if(o.trackingNo===undefined)o.trackingNo='';if(o.barcode===undefined)o.barcode='';if(o.invoiced===undefined)o.invoiced=false;
     for(const k of ['paidAt','buyerMessage','freight','paidAmount','postcode','cod','codAmount','productType','erpCode','reconStatus','payStatus','payee','payMethod','supReconStatus','supPayStatus','supPayee','supPayMethod','supPaidAt'])if(o[k]===undefined)o[k]='';}
@@ -180,6 +181,13 @@
   function diceSim(a,b){if(!a||!b)return 0;if(a===b)return 1;const A=bigrams(a),B=bigrams(b);if(!A.length||!B.length)return 0;const m=new Map();for(const g of A)m.set(g,(m.get(g)||0)+1);let inter=0;for(const g of B){const c=m.get(g)||0;if(c){inter++;m.set(g,c-1);}}return (2*inter)/(A.length+B.length);}
   function stripSpecText(v) {
     return String(v == null ? '' : v).toLowerCase().replace(/[\s,，、;；/\\|·\-—_（）()【】\[\]]+/g, '');
+  }
+  function splitNameSpec(name) {
+    const raw = String(name == null ? '' : name).trim();
+    if (!raw) return { name: '', spec: '' };
+    const m = raw.match(/(?:商品规格|规格)\s*[:：]\s*(.+)$/);
+    if (m) return { name: raw.slice(0, m.index).trim() || raw, spec: m[1].trim() };
+    return { name: raw, spec: '' };
   }
   function specKey(v) {
     const t = String(v == null ? '' : v).toLowerCase().replace(/[\s,，、;；/\\|·\-—_（）()【】\[\]]+/g, ' ').trim();
@@ -1294,7 +1302,8 @@
     $('#skip-import').onclick=()=>{pending.shift();closeModal();nextImport();};
     $('#confirm-import').onclick=async()=>{capture();if(!d.customer){$('#import-error').textContent=state.customers.length?'请选择来源客户。':'客户库里还没有客户，请先到「客户库」新增客户，再回来上传订单。';return;}if(d.map.productName===''){ $('#import-error').textContent='请至少指定商品名称字段。';return;}if(d.map.sourceSku!==''&&norm(headers[Number(d.map.sourceSku)])===norm('订单商品编号')){$('#import-error').textContent='订单商品编号不能作为稳定商品编码，请改选或留空。';return;}
       const batchId=uid(),orders=[],get=(r,k)=>d.map[k]===''?'':String(r[Number(d.map[k])]??'').trim();
-      s.rows.slice(d.header+1).forEach((raw,idx)=>{if(!raw.some(v=>String(v??'').trim()))return;if(headers.every((h,i)=>String(h??'')===String(raw[i]??'')))return;const row={id:uid(),batchId,customer:d.customer,sourceFile:d.book.name,sourceSheet:s.name,sourceRow:d.header+idx+2,excluded:false,manual:false,productId:''};for(const[k]of FIELDS)row[k]=get(raw,k);if(!String(row.buyerNickname||'').trim())row.buyerNickname=String(row.recipient||'').trim();row.phone=normalizePhone(row.phone);row.address=[row.province,row.city,row.district,row.address].filter(Boolean).join('');row.quantity=row.quantity===''?'':Number(row.quantity.replace(/,/g,''));if(!Number.isFinite(row.quantity))row.quantity='';if(/^\d{5}(\.\d+)?$/.test(String(row.date||'').trim()))row.date=excelSerialText(row.date);row.raw=Object.fromEntries(headers.map((h,i)=>[String(h||`列${i+1}`),String(raw[i]??'')]));const existing=[...state.orders,...orders].find(o=>!o.excluded&&duplicateKey(o)===duplicateKey(row));if(existing&&row.orderNo)row.duplicateOf=existing.id;orders.push(row);});
+      s.rows.slice(d.header+1).forEach((raw,idx)=>{if(!raw.some(v=>String(v??'').trim()))return;if(headers.every((h,i)=>String(h??'')===String(raw[i]??'')))return;const row={id:uid(),batchId,customer:d.customer,sourceFile:d.book.name,sourceSheet:s.name,sourceRow:d.header+idx+2,excluded:false,manual:false,productId:''};for(const[k]of FIELDS)row[k]=get(raw,k);if(!String(row.sourceSpec||'').trim()){const sp=splitNameSpec(row.productName);if(sp.spec){row.sourceSpec=sp.spec;row.productName=sp.name;}}
+    if(!String(row.buyerNickname||'').trim())row.buyerNickname=String(row.recipient||'').trim();row.phone=normalizePhone(row.phone);row.address=[row.province,row.city,row.district,row.address].filter(Boolean).join('');row.quantity=row.quantity===''?'':Number(row.quantity.replace(/,/g,''));if(!Number.isFinite(row.quantity))row.quantity='';if(/^\d{5}(\.\d+)?$/.test(String(row.date||'').trim()))row.date=excelSerialText(row.date);row.raw=Object.fromEntries(headers.map((h,i)=>[String(h||`列${i+1}`),String(raw[i]??'')]));const existing=[...state.orders,...orders].find(o=>!o.excluded&&duplicateKey(o)===duplicateKey(row));if(existing&&row.orderNo)row.duplicateOf=existing.id;orders.push(row);});
       if(!orders.length){$('#import-error').textContent='所选表头下没有可导入的数据。';return;}if(state.orders.length+orders.length>30000){$('#import-error').textContent='工作区最多保留30,000行，请先备份并清理旧批次。';return;}
       ensureCustomer(d.customer);state.orders.push(...orders);state.batches.push({id:batchId,name:d.book.name,hash:d.hash,customer:d.customer,createdAt:new Date().toISOString(),rowCount:orders.length});includeNewBatch(batchId);state.profiles[headers.map(norm).join('|')]=copy(d.map);invalidate();history(`导入 ${orders.length} 行：${d.book.name}`);await save();pending.shift();closeModal();toast(`已导入 ${orders.length} 条订单明细。`);nextImport();};
   }
