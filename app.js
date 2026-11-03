@@ -88,6 +88,7 @@
     if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
     for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
     // Correct only the known sample-alias constraint from the initial prototype.
+    for(const p of v.products){if(!Array.isArray(p.quotes))p.quotes=[];}
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
   function refreshBatchExportFlags(){
@@ -961,6 +962,47 @@
     const q = norm(query);
     return state.products.filter(p => (supplierFilter === 'all' || p.supplierId === supplierFilter) && (!q || norm([p.name, p.supplierSku, p.internalSku, p.brand, p.barcode, p.category, ...p.aliases.map(a => a.name || a.code)].join(' ')).includes(q)));
   }
+  function quoteModal(pid) {
+    const p = pById(pid);
+    if (!p) return;
+    const custs = state.customers.map(c => c.name);
+    if (!Array.isArray(p.quotes)) p.quotes = [];
+    let draft = p.quotesInit ? p.quotes.map(q => ({ customer: q.customer, price: q.price }))
+      : (p.quotes.length ? p.quotes.map(q => ({ customer: q.customer, price: q.price })) : custs.map(n => ({ customer: n, price: 100 })));
+    const syncDraft = () => {
+      $$('[data-qprice]').forEach(inp => {
+        const i = Number(inp.dataset.qprice);
+        if (draft[i]) draft[i].price = Math.round((Number(inp.value) || 0) * 100) / 100;
+      });
+    };
+    const draw = () => {
+      const seen = new Set(draft.map(d => norm(d.customer)));
+      const missing = custs.filter(n => !seen.has(norm(n)));
+      openModal(`报价单 · ${p.name}`, `
+        <p class="muted">同一商品对不同客户可以报不同价格；未单独设置的客户默认按 100 元。</p>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
+        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">删除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">还没有报价，可在下方新增</td></tr>'}
+        </tbody></table></div>
+        ${missing.length ? `<div class="quote-add"><select id="q-add-cust">${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select><button type="button" class="btn secondary small" id="q-add">新增报价</button></div>` : `<p class="muted" style="margin-top:10px">客户库里的客户都已在这张报价单里。</p>`}
+      `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
+      $$('[data-qdel]').forEach(b => b.onclick = () => { syncDraft(); draft.splice(Number(b.dataset.qdel), 1); draw(); });
+      $('#q-add')?.addEventListener('click', () => {
+        syncDraft();
+        const sel = $('#q-add-cust');
+        if (!sel) return;
+        draft.push({ customer: sel.value, price: 100 });
+        draw();
+      });
+      $('#q-save').onclick = async () => {
+        syncDraft();
+        p.quotes = draft.filter(d => String(d.customer || '').trim()).map(d => ({ customer: String(d.customer).trim(), price: d.price }));
+        p.quotesInit = true;
+        await save(); closeModal(); render();
+        toast(`已保存「${p.name}」的 ${p.quotes.length} 条客户报价。`);
+      };
+    };
+    draw();
+  }
   const POOL_COMMON = ['no', 'supplier', 'name', 'spec', 'netContent', 'cost', 'suggestPrice', 'internalSku', 'supplierSku', 'barcode', 'status'];
   const poolCell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
   const poolLink = v => v ? `<a class="text-link" href="${esc(v)}" target="_blank" rel="noopener">链接</a>` : '<span class="muted">—</span>';
@@ -1043,7 +1085,7 @@
     const cols = poolColumnKeys().map(k => POOL_COLUMNS.find(c => c.key === k)).filter(Boolean);
     return `<div class="table-wrap"><table class="data-table pool-table"><thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${slice.map((p, i) => {
       const s = sById(p.supplierId) || {};
-      return `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.cell(p, offset + i, s)}</td>`).join('')}<td><button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
+      return `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.cell(p, offset + i, s)}</td>`).join('')}<td><button class="text-link" data-quote-product="${esc(p.id)}">报价单</button> <button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
     }).join('') || `<tr><td colspan="${cols.length + 1}" class="empty-cell">没有找到商品，请导入报价单或调整筛选。</td></tr>`}</tbody></table></div><div class="pagination"><span>共 ${ps.length} 个商品 · 每页 40 个</span><div><button class="btn ghost small" data-ppage="${productPage - 1}" ${productPage <= 1 ? 'disabled' : ''}>上一页</button><span>${productPage} / ${pages}</span><button class="btn ghost small" data-ppage="${productPage + 1}" ${productPage >= pages ? 'disabled' : ''}>下一页</button></div></div>`;
   }
   function exportRow(order, product) {
@@ -1161,7 +1203,7 @@
   }
   const guardAsync=async fn=>{try{await fn();}catch(e){toast(e.message||'操作失败，请重试。','warning');}};
   function bindOrderActions(){$$('[data-del-order]').forEach(b=>b.onclick=()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{await deleteOrders([b.dataset.delOrder],'已删除 1 条明细。');}));$$('[data-edit-order]').forEach(b=>b.onclick=()=>orderModal(b.dataset.editOrder));$$('[data-page]').forEach(b=>b.onclick=()=>{page=Number(b.dataset.page);$('#orders-table').innerHTML=orderTable();bindOrderActions();});}
-  function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
+  function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-quote-product]').forEach(b=>b.onclick=()=>quoteModal(b.dataset.quoteProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
   async function queueFiles(files){if(!files?.length)return;const list=Array.from(files);if(list.length>30){toast('每次最多导入30个文件。','warning');return;}let failed=0;for(const f of list){try{if(f.size>15*1024*1024)throw Error('文件超过15MB');const ab=await f.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',ab))).map(v=>v.toString(16).padStart(2,'0')).join('');if(state.batches.some(b=>b.hash===hash)||pending.some(p=>p.hash===hash)){toast(`已跳过重复文件：${f.name}`,'warning');continue;}const book=await OrderExcel.read(f);pending.push({book,hash});}catch(e){failed++;toast(`${f.name}：${e.message}`,'warning');}}if(pending.length)nextImport();else if(!failed)toast('所选文件已导入过。','warning');}
   function inferCustomer(name){if(name.includes('兮迪'))return '兮迪';if(/GBH/i.test(name))return 'GBH';return name.replace(/\.(xlsx|csv)$/i,'').replace(/\s+/g,' ').trim().slice(0,50);}
   function autoMap(headers){

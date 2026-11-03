@@ -220,3 +220,7 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 
 /* 地址列：限宽省略，悬停看全文 */
 .addr{display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+
+/* 报价单弹窗 */
+.quote-add{display:flex;align-items:center;gap:10px;margin-top:12px}
+.quote-add select{max-width:240px}
