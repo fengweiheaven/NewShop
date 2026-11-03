@@ -1015,25 +1015,24 @@
       });
     };
     const draw = () => {
-      const seen = new Set(draft.map(d => norm(d.customer)));
-      const missing = custs.filter(n => !seen.has(norm(n)));
+      const chosen = new Set(draft.map(d => norm(d.customer)));
       openModal(`报价单 · ${p.name}`, `
-        <p class="muted">同一商品对不同客户可以报不同价格。先选择要报价的客户，再填写价格；没设置的客户不计入对账金额。</p>
-        <div class="table-wrap"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
-        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" placeholder="输入报价" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">删除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">还没有报价，先在下方选择客户</td></tr>'}
+        <p class="muted">勾选需要报价的客户，填好价格后保存。没勾选的客户不会计入对账金额。</p>
+        ${custs.length ? `<div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${chosen.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
+        <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
+        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" placeholder="输入报价" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">移除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">上面勾选客户后，这里会列出报价行</td></tr>'}
         </tbody></table></div>
-        ${missing.length ? `<div class="quote-add"><select id="q-add-cust" aria-label="选择客户">${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select><button type="button" class="btn secondary small" id="q-add">添加这个客户</button></div>` : `<p class="muted" style="margin-top:10px">${custs.length ? '客户库里的客户都已在报价单里。' : '客户库还没有客户，请先到客户库新增。'}</p>`}
       `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
-      $$('[data-qdel]').forEach(b => b.onclick = () => { syncDraft(); draft.splice(Number(b.dataset.qdel), 1); draw(); });
-      $('#q-add')?.addEventListener('click', () => {
+      $$('[data-qpick]').forEach(cb => cb.onchange = () => {
         syncDraft();
-        const sel = $('#q-add-cust');
-        if (!sel) return;
-        draft.push({ customer: sel.value, price: '' });
+        const name = cb.dataset.qpick;
+        if (cb.checked) { if (!draft.some(d => norm(d.customer) === norm(name))) draft.push({ customer: name, price: '' }); }
+        else draft = draft.filter(d => norm(d.customer) !== norm(name));
         draw();
         const inputs = $$('[data-qprice]');
-        inputs[inputs.length - 1]?.focus();
+        if (cb.checked && inputs.length) inputs[inputs.length - 1].focus();
       });
+      $$('[data-qdel]').forEach(b => b.onclick = () => { syncDraft(); draft.splice(Number(b.dataset.qdel), 1); draw(); });
       $('#q-save').onclick = async () => {
         syncDraft();
         const kept = draft.filter(d => String(d.customer || '').trim());

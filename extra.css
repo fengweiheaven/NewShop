@@ -230,3 +230,10 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .match-debug-head{display:flex;align-items:center;gap:6px;font-weight:600;color:#3d525d;margin-bottom:6px}
 .match-debug ul{margin:0 0 10px;padding-left:18px;color:#6b7c85;font-size:11px;line-height:1.8}
 .match-debug table{font-size:11px}
+
+/* 报价单客户勾选 */
+.quote-checks{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 2px}
+.quote-check{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid #e2e8ec;border-radius:999px;background:#fff;font-size:12px;color:#4b6069;cursor:pointer;transition:.15s}
+.quote-check:hover{border-color:#b9d8d2;background:#f6fbfa}
+.quote-check input{accent-color:#0e7a70;margin:0}
+.quote-check:has(input:checked){border-color:#0e7a70;background:#eaf6f3;color:#0b5f57;font-weight:600}
