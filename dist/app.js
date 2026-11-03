@@ -1007,38 +1007,41 @@
     if (!p) return;
     const custs = state.customers.map(c => c.name);
     if (!Array.isArray(p.quotes)) p.quotes = [];
-    let draft = p.quotesInit ? p.quotes.map(q => ({ customer: q.customer, price: q.price }))
-      : (p.quotes.length ? p.quotes.map(q => ({ customer: q.customer, price: q.price })) : custs.map(n => ({ customer: n, price: 100 })));
+    let draft = p.quotes.map(q => ({ customer: q.customer, price: q.price }));
     const syncDraft = () => {
       $$('[data-qprice]').forEach(inp => {
         const i = Number(inp.dataset.qprice);
-        if (draft[i]) draft[i].price = Math.round((Number(inp.value) || 0) * 100) / 100;
+        if (draft[i]) draft[i].price = inp.value === '' ? '' : Math.round((Number(inp.value) || 0) * 100) / 100;
       });
     };
     const draw = () => {
       const seen = new Set(draft.map(d => norm(d.customer)));
       const missing = custs.filter(n => !seen.has(norm(n)));
       openModal(`报价单 · ${p.name}`, `
-        <p class="muted">同一商品对不同客户可以报不同价格；未单独设置的客户默认按 100 元。</p>
-        <div class="table-wrap"><table class="data-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
-        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">删除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">还没有报价，可在下方新增</td></tr>'}
+        <p class="muted">同一商品对不同客户可以报不同价格。先选择要报价的客户，再填写价格；没设置的客户不计入对账金额。</p>
+        <div class="table-wrap"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody>
+        ${draft.map((d, i) => `<tr><td>${esc(d.customer)}</td><td><input type="number" min="0" step="0.01" data-qprice="${i}" value="${esc(d.price)}" placeholder="输入报价" aria-label="${esc(d.customer)} 报价"></td><td><button type="button" class="text-link danger" data-qdel="${i}">删除</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-cell">还没有报价，先在下方选择客户</td></tr>'}
         </tbody></table></div>
-        ${missing.length ? `<div class="quote-add"><select id="q-add-cust">${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select><button type="button" class="btn secondary small" id="q-add">新增报价</button></div>` : `<p class="muted" style="margin-top:10px">客户库里的客户都已在这张报价单里。</p>`}
+        ${missing.length ? `<div class="quote-add"><select id="q-add-cust" aria-label="选择客户">${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select><button type="button" class="btn secondary small" id="q-add">添加这个客户</button></div>` : `<p class="muted" style="margin-top:10px">${custs.length ? '客户库里的客户都已在报价单里。' : '客户库还没有客户，请先到客户库新增。'}</p>`}
       `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
       $$('[data-qdel]').forEach(b => b.onclick = () => { syncDraft(); draft.splice(Number(b.dataset.qdel), 1); draw(); });
       $('#q-add')?.addEventListener('click', () => {
         syncDraft();
         const sel = $('#q-add-cust');
         if (!sel) return;
-        draft.push({ customer: sel.value, price: 100 });
+        draft.push({ customer: sel.value, price: '' });
         draw();
+        const inputs = $$('[data-qprice]');
+        inputs[inputs.length - 1]?.focus();
       });
       $('#q-save').onclick = async () => {
         syncDraft();
-        p.quotes = draft.filter(d => String(d.customer || '').trim()).map(d => ({ customer: String(d.customer).trim(), price: d.price }));
+        const kept = draft.filter(d => String(d.customer || '').trim());
+        const blank = kept.filter(d => d.price === '' || !Number.isFinite(Number(d.price)));
+        p.quotes = kept.filter(d => d.price !== '' && Number.isFinite(Number(d.price))).map(d => ({ customer: String(d.customer).trim(), price: Number(d.price) }));
         p.quotesInit = true;
         await save(); closeModal(); render();
-        toast(`已保存「${p.name}」的 ${p.quotes.length} 条客户报价。`);
+        toast(blank.length ? `已保存 ${p.quotes.length} 条报价，${blank.length} 个客户没填价格已忽略。` : `已保存 ${p.quotes.length} 条客户报价。`);
       };
     };
     draw();
