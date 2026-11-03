@@ -224,3 +224,9 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 /* 报价单弹窗 */
 .quote-add{display:flex;align-items:center;gap:10px;margin-top:12px}
 .quote-add select{max-width:240px}
+
+/* 匹配诊断 */
+.match-debug{border:1px solid #e9edf0;border-radius:10px;padding:12px 14px;background:#fbfcfd}
+.match-debug-head{display:flex;align-items:center;gap:6px;font-weight:600;color:#3d525d;margin-bottom:6px}
+.match-debug ul{margin:0 0 10px;padding-left:18px;color:#6b7c85;font-size:11px;line-height:1.8}
+.match-debug table{font-size:11px}
