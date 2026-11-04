@@ -1036,6 +1036,61 @@
     const q = norm(query);
     return state.products.filter(p => (supplierFilter === 'all' || p.supplierId === supplierFilter) && (!q || norm([p.name, p.supplierSku, p.internalSku, p.brand, p.barcode, p.category, ...p.aliases.map(a => a.name || a.code)].join(' ')).includes(q)));
   }
+  function attachCustomerPicker(names) {
+    const input = $('#customer-input');
+    const list = $('#customer-list');
+    const toggle = $('#customer-toggle');
+    if (!input || !list) return;
+    const known = names.slice();
+    if (input.value && !known.some(n => norm(n) === norm(input.value))) input.value = '';
+    let active = -1;
+    let shown = [];
+    const renderList = () => {
+      const q = norm(input.value);
+      shown = known.filter(n => !q || norm(n).includes(q));
+      active = -1;
+      list.innerHTML = shown.length
+        ? shown.map((n, i) => `<button type="button" class="combo-item" data-combo-index="${i}">${esc(n)}</button>`).join('')
+        : '<div class="combo-empty">没有匹配的客户</div>';
+      list.querySelectorAll('[data-combo-index]').forEach(btn => {
+        btn.addEventListener('mousedown', ev => { ev.preventDefault(); pick(Number(btn.dataset.comboIndex)); });
+      });
+    };
+    const open = () => { renderList(); list.hidden = false; };
+    const close = () => { list.hidden = true; active = -1; };
+    const pick = i => {
+      const name = shown[i];
+      if (!name) return;
+      input.value = name;
+      close();
+      input.focus();
+    };
+    const highlight = () => {
+      const items = [...list.querySelectorAll('.combo-item')];
+      items.forEach((el, i) => el.classList.toggle('active', i === active));
+      if (items[active]) items[active].scrollIntoView({ block: 'nearest' });
+    };
+    input.addEventListener('focus', open);
+    input.addEventListener('click', open);
+    input.addEventListener('input', open);
+    toggle && toggle.addEventListener('click', ev => { ev.preventDefault(); list.hidden ? (input.focus(), open()) : close(); });
+    input.addEventListener('keydown', ev => {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        if (list.hidden) { open(); return; }
+        ev.preventDefault();
+        if (!shown.length) return;
+        active = ev.key === 'ArrowDown' ? Math.min(active + 1, shown.length - 1) : Math.max(active - 1, 0);
+        highlight();
+      } else if (ev.key === 'Enter') {
+        if (!list.hidden && active >= 0) { ev.preventDefault(); pick(active); }
+      } else if (ev.key === 'Escape') {
+        if (!list.hidden) { ev.stopPropagation(); close(); }
+      }
+    });
+    document.addEventListener('mousedown', ev => {
+      if (!ev.target.closest('.combo')) close();
+    });
+  }
   function quotePrice(product, customerName) {
     if (!product || !Array.isArray(product.quotes)) return null;
     const q = product.quotes.find(x => norm(x.customer) === norm(customerName));
@@ -1328,10 +1383,11 @@
   }
   function nextImport(){if(!pending.length){render();return;}const p=pending[0];const s=p.book.sheets.find(s=>s.rows.length>1)||p.book.sheets[0];const idx=p.book.sheets.indexOf(s);const header=OrderExcel.detectHeader(s.rows);importDraft={...p,sheet:idx,header,customer:inferCustomer(p.book.name),map:{}};showImportModal(true);}
   function showImportModal(reset=false){const d=importDraft,s=d.book.sheets[d.sheet],headers=s.rows[d.header]||[];if(reset){const signature=headers.map(norm).join('|');const auto=autoMap(headers),saved=state.profiles[signature]||{};d.map={};for(const [k] of FIELDS)d.map[k]=(saved[k]===undefined||saved[k]==='')?auto[k]:saved[k];}
-    openModal(`确认导入字段 · ${pending.length} 个文件待处理`,`<div class="alert info">${icon('file')} ${esc(d.book.name)} · 请选择来源客户及正确的表头行。客户需先在「客户库」里登记。</div>${state.customers.length?'<p class="muted form-hint-line">下拉里没有要选的客户？先关闭本窗口，到「客户库」新增后再上传这个文件。</p>':`<div class="alert warning">${icon('shield')}<span>客户库还是空的。请先到「客户库」新增客户，再回来上传订单。</span></div>`}<form id="import-form"><div class="form-grid">${(() => { const c=state.customers.map(x=>x.name); return `<div class="field"><label for="customer-input">来源客户</label><input id="customer-input" name="customer" list="customer-options" autocomplete="off" placeholder="输入客户名筛选，或从下拉选" value="${esc(d.customer||'')}"><datalist id="customer-options">${c.map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist><small class="muted">共 ${c.length} 个客户，可输入关键字过滤</small></div>`; })()}${selectField('工作表','sheet',d.book.sheets.map((s,i)=>[i,`${s.name}（${Math.max(0,s.rows.length-1)} 行）`]),d.sheet)}${field('表头在第几行','header',d.header+1,{type:'number',hint:'选择前20行内的表头'})}<div class="field"><span>预计读取</span><div class="read-count">${Math.max(0,s.rows.length-d.header-1)} 行数据</div></div></div><h3 class="section-label">来源字段对应关系</h3><div class="form-grid">${FIELDS.map(([key,label])=>selectField(label,'map-'+key,[['','不读取 / 未提供'],...headers.map((h,i)=>[String(i),`${String.fromCharCode(65+Math.floor(i/26)-1).replace('@','')}${String.fromCharCode(65+i%26)} · ${h||'空白列'}`])],d.map[key]??'')).join('')}</div><div class="alert warning">“订单商品编号”是订单明细 ID。商品映射请使用“客户商品编码”或商品名称与规格。</div><h3 class="section-label">来源预览（前2行）</h3><div class="table-wrap compact"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.rows.slice(d.header+1,d.header+3).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p id="import-error" class="form-error" role="alert"></p></form>`,`<button class="btn secondary" id="skip-import">跳过此文件</button><button class="btn" id="confirm-import">确认导入并匹配</button>`,true);
-    const capture=()=>{d.customer=String($('[name=customer]').value||'').trim();FIELDS.forEach(([k])=>d.map[k]=$(`[name="map-${k}"]`).value);};
+    openModal(`确认导入字段 · ${pending.length} 个文件待处理`,`<div class="alert info">${icon('file')} ${esc(d.book.name)} · 请选择来源客户及正确的表头行。客户需先在「客户库」里登记。</div>${state.customers.length?'<p class="muted form-hint-line">下拉里没有要选的客户？先关闭本窗口，到「客户库」新增后再上传这个文件。</p>':`<div class="alert warning">${icon('shield')}<span>客户库还是空的。请先到「客户库」新增客户，再回来上传订单。</span></div>`}<form id="import-form"><div class="form-grid">${(() => { const c=state.customers.map(x=>x.name); return `<div class="field"><label for="customer-input">来源客户</label><div class="combo"><input id="customer-input" name="customerName" autocomplete="nope" spellcheck="false" placeholder="点击选择客户，或输入关键字筛选" value="${esc(d.customer||'')}"><button type="button" class="combo-toggle" id="customer-toggle" aria-label="展开客户列表">${icon('arrow')}</button><div class="combo-list" id="customer-list" hidden></div></div><small class="muted">共 ${c.length} 个客户，可输入关键字筛选</small></div>`; })()}${selectField('工作表','sheet',d.book.sheets.map((s,i)=>[i,`${s.name}（${Math.max(0,s.rows.length-1)} 行）`]),d.sheet)}${field('表头在第几行','header',d.header+1,{type:'number',hint:'选择前20行内的表头'})}<div class="field"><span>预计读取</span><div class="read-count">${Math.max(0,s.rows.length-d.header-1)} 行数据</div></div></div><h3 class="section-label">来源字段对应关系</h3><div class="form-grid">${FIELDS.map(([key,label])=>selectField(label,'map-'+key,[['','不读取 / 未提供'],...headers.map((h,i)=>[String(i),`${String.fromCharCode(65+Math.floor(i/26)-1).replace('@','')}${String.fromCharCode(65+i%26)} · ${h||'空白列'}`])],d.map[key]??'')).join('')}</div><div class="alert warning">“订单商品编号”是订单明细 ID。商品映射请使用“客户商品编码”或商品名称与规格。</div><h3 class="section-label">来源预览（前2行）</h3><div class="table-wrap compact"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.rows.slice(d.header+1,d.header+3).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p id="import-error" class="form-error" role="alert"></p></form>`,`<button class="btn secondary" id="skip-import">跳过此文件</button><button class="btn" id="confirm-import">确认导入并匹配</button>`,true);
+    const capture=()=>{const el=$('#customer-input')||$('[name=customer]');d.customer=String(el&&el.value||'').trim();FIELDS.forEach(([k])=>d.map[k]=$(`[name="map-${k}"]`).value);};
     $('[name=sheet]').onchange=e=>{capture();d.sheet=Number(e.target.value);d.header=OrderExcel.detectHeader(d.book.sheets[d.sheet].rows);showImportModal(true);};
     $('[name=header]').onchange=e=>{capture();const n=Number(e.target.value);if(!Number.isInteger(n)||n<1||n>Math.min(20,s.rows.length)){toast('请输入有效表头行（1至20）。','warning');e.target.value=d.header+1;return;}d.header=n-1;showImportModal(true);};
+    attachCustomerPicker(state.customers.map(c=>c.name));
     $('#skip-import').onclick=()=>{pending.shift();closeModal();nextImport();};
     $('#confirm-import').onclick=async()=>{capture();if(!d.customer){$('#import-error').textContent=state.customers.length?'请选择来源客户。':'客户库里还没有客户，请先到「客户库」新增客户，再回来上传订单。';return;}
       if(!state.customers.some(c=>norm(c.name)===norm(d.customer))){$('#import-error').textContent='客户库里没有「'+d.customer+'」，请先到客户库新增，或从下拉里选择已有客户。';return;}if(d.map.productName===''){ $('#import-error').textContent='请至少指定商品名称字段。';return;}if(d.map.sourceSku!==''&&norm(headers[Number(d.map.sourceSku)])===norm('订单商品编号')){$('#import-error').textContent='订单商品编号不能作为稳定商品编码，请改选或留空。';return;}

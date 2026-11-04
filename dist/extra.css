@@ -246,3 +246,14 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .pool-table .pick-col{width:34px;text-align:center;padding-left:8px;padding-right:0}
 .pool-table .pick-col input{accent-color:#0e7a70}
 .recon-bulk{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 8px}
+
+/* 客户选择器 */
+.combo{position:relative}
+.combo input{width:100%;padding-right:38px}
+.combo-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#8b979f;padding:4px 6px;border-radius:6px;line-height:1}
+.combo-toggle svg{width:14px;height:14px;transform:rotate(90deg)}
+.combo-toggle:hover{background:#f0f5f4;color:#0e7a70}
+.combo-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;max-height:260px;overflow:auto;background:#fff;border:1px solid #e2e8ec;border-radius:10px;box-shadow:0 12px 32px rgba(16,32,42,.12);padding:4px}
+.combo-item{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:8px;font-size:13px;color:#3f545e}
+.combo-item:hover,.combo-item.active{background:#eaf6f3;color:#0b5f57}
+.combo-empty{padding:10px;color:#8b979f;font-size:12px}
