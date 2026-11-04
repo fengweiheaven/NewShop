@@ -1803,7 +1803,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   function renderShipment() {
     const st = shipmentStats();
     const hasOrders = shipmentOrders().length > 0;
-    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>只处理已按供应商格式导出的订单，默认只看今天导出的：上传带快递单号的表，按收货人/电话匹配，把单号写回同一张表再下载。</p></div><div class="intro-actions">${(() => { const n = shipmentOrders().filter(o => String(o.trackingNo || '').trim()).length; return `<button class="btn secondary" id="export-customer-ship" ${n ? '' : 'disabled'}>${icon('download')} 按客户导出（${n}）</button>`; })()}${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>流程：客户订单 → 按供应商格式导出 → 供应商返回带快递单号的表 → 在这里导入并匹配回客户订单 → 导出「客户原表回填」交给客户。默认只看今天导出的订单。</p></div><div class="intro-actions">${(() => { const n = shipmentOrders().filter(o => String(o.trackingNo || '').trim()).length; return `<button class="btn secondary" id="export-customer-ship" ${n ? '' : 'disabled'}>${icon('download')} 按客户汇总（${n}）</button><button class="btn" id="export-origin-ship">${icon('download')} 回填客户原表</button>`; })()}${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
       ${(() => { const exp = shipmentOrders(); const filled = exp.filter(o => String(o.trackingNo || '').trim()).length; return `<div class="stats-grid">${[['box','已导出订单',exp.length,'按供应商格式导出过的明细'],['check','已回填单号',filled,'订单上已有快递单号'],['clock','待回填',exp.length - filled,'还没写回单号']].map(([ic,l,v,n]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`; })()}
       ${!hasOrders ? `<div class="alert warning">${icon('shield')}<span>还没有已导出的订单。先到「订单采集与匹配」把订单匹配好，再点「按供应商导出 → 导出 Excel」，导出的明细才会出现在这里。</span></div>` : ''}
       <section class="card"><div class="card-header"><div><h2>上传快递单号表</h2><p class="muted">支持 .xlsx / UTF-8 CSV；原表列结构保持不动，只在订单号列写入值。</p></div><label class="date-filter"><span>导出日期</span><select id="shipment-date"><option value="all">全部（${activeRows().filter(r=>r.exportedAt&&!r.excluded).length}）</option>${DATE_RANGES.map(([k,label])=>`<option value="${k}" ${shipmentDate===k?'selected':''}>${label} ${rangeText(k)}（${activeRows().filter(r=>r.exportedAt&&!r.excluded&&inDateFilter(exportDateOf(r),k)).length}）</option>`).join('')}<option value="----" disabled>──────</option>${shipmentDateOptions().map(([d,n])=>`<option value="${esc(d)}" ${shipmentDate===d?'selected':''}>${esc(d)}（${n}）</option>`).join('')}</select></label></div><div class="card-body"><div class="dropzone compact" id="shipment-drop" tabindex="0" role="button" aria-label="选择或拖入快递单号表"><div class="upload-icon">${icon('upload')}</div><div class="dz-text"><h3>拖入快递单号表，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB · <span class="drop-hint">自动识别收货人、电话、地址、快递单号</span></p></div><input id="shipment-file" type="file" accept=".xlsx,.xls,.csv" hidden></div></section>
@@ -1811,6 +1811,56 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
         ${st.missing ? `<div class="alert warning">${icon('shield')}<span>${st.missing} 行没有匹配到订单号，下载后这些行的订单号列会是空的；可在表格里按收货人/电话人工补。</span></div>` : ''}
         <div class="table-wrap"><table class="data-table"><thead><tr><th>收货人</th><th>电话</th><th>快递单号</th><th>商品</th><th>订单号</th><th>匹配依据</th></tr></thead><tbody>${shipmentPreviewRows().map(m => `<tr><td>${esc(m.recipient || '—')}</td><td class="mono">${esc(m.phone || '—')}</td><td class="mono">${esc(m.tracking || '—')}</td><td class="product-cell">${esc(String(m.product || '').slice(0, 30) || '—')}</td><td class="mono">${m.orderNo ? esc(m.orderNo) : '<span class="muted">未匹配</span>'}</td><td>${m.how ? esc(m.how) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${shipmentPreviewRows().length} 行，下载包含全部 ${st.total} 行。</span></div></section>` : ''}${shipmentPendingSection()}`;
+  }
+  function originalSheetRows(batchId) {
+    const rows = shipmentOrders().filter(o => o.batchId === batchId);
+    if (!rows.length) return null;
+    const first = rows.find(o => o.raw && Object.keys(o.raw).length) || null;
+    let headers = first ? Object.keys(first.raw) : [];
+    if (!headers.length) headers = ['订单编号', '商品名称', '购买数量', '收货人', '收货人手机号', '收货地址'];
+    const trackCol = headers.find(h => /物流单号|快递单号|运单号|快递编号/.test(String(h)));
+    const carrierCol = headers.find(h => /物流公司|快递公司|承运/.test(String(h)));
+    const outHeaders = headers.slice();
+    if (!trackCol) outHeaders.push('快递单号');
+    if (!carrierCol) outHeaders.push('物流公司');
+    const data = rows.map(o => {
+      const base = o.raw && Object.keys(o.raw).length ? headers.map(h => (o.raw[h] == null ? '' : String(o.raw[h]))) : [
+        o.orderNo || '', o.productName || '', o.quantity == null ? '' : o.quantity, o.recipient || '', o.phone || '', o.address || ''
+      ];
+      const track = String(o.trackingNo || '').trim();
+      const carrier = String(o.carrier || '').trim();
+      if (trackCol) base[headers.indexOf(trackCol)] = track || base[headers.indexOf(trackCol)] || '';
+      if (carrierCol) base[headers.indexOf(carrierCol)] = carrier || base[headers.indexOf(carrierCol)] || '';
+      if (!trackCol) base.push(track);
+      if (!carrierCol) base.push(carrier);
+      return base;
+    });
+    const batch = state.batches.find(b => b.id === batchId) || {};
+    return { name: batch.name || '订单', customer: batch.customer || '', headers: outHeaders, rows: data };
+  }
+  async function exportCustomerOriginals() {
+    const list = shipmentOrders();
+    if (!list.length) { toast('当前筛选范围内没有已导出的订单。', 'warning'); return; }
+    const batchIds = [...new Set(list.map(o => o.batchId))];
+    const sheets = batchIds.map(id => originalSheetRows(id)).filter(Boolean);
+    if (!sheets.length) { toast('没有可回填的客户原表。', 'warning'); return; }
+    const filled = list.filter(o => String(o.trackingNo || '').trim()).length;
+    if (sheets.length === 1) {
+      const sh = sheets[0];
+      const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: '回填补单' });
+      OrderExcel.downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(sh.customer || '客户')}_原表回填_${stamp()}.xlsx`);
+    } else {
+      const zip = new JSZip();
+      let i = 0;
+      for (const sh of sheets) {
+        i++;
+        const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: '回填补单' });
+        zip.file(`${String(i).padStart(2, '0')}_${safeName(sh.customer || '客户')}_${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`, bytes);
+      }
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      OrderExcel.downloadBlob(blob, `客户原表回填_${stamp()}.zip`);
+    }
+    toast(`已导出 ${sheets.length} 张客户原表，其中 ${filled} 条带快递单号。`);
   }
   async function exportShipmentByCustomer() {
     const rows = shipmentOrders().filter(o => String(o.trackingNo || '').trim());
@@ -1870,6 +1920,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     $('#shipment-file')?.addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; openShipment(f); });
     $('#shipment-download')?.addEventListener('click', () => guardAsync(exportShipment));
     $('#export-customer-ship')?.addEventListener('click',()=>guardAsync(exportShipmentByCustomer));
+    $('#export-origin-ship')?.addEventListener('click',()=>guardAsync(exportCustomerOriginals));
     $('#shipment-date')?.addEventListener('change',e=>{shipmentDate=e.target.value;render();});
     $('#shipment-reset')?.addEventListener('click', () => { shipment = null; render(); });
     $('#shipment-remap')?.addEventListener('click', () => { toast('重新上传同一份表即可重选列。', 'warning'); $('#shipment-file').click(); });
