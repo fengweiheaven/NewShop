@@ -5,7 +5,7 @@ const path = require('path');
 
 const SRC = path.join(__dirname, '..', 'dist');
 const OUT = path.join(__dirname, '..', 'public');
-const ASSETS = ['style.css', 'extra.css', 'theme.css', 'seed.js', 'core.js', 'config.js', 'config.local.js', 'store.js', 'auth.js', 'app.js', 'vendor/jszip.min.js'];
+const ASSETS = ['style.css', 'extra.css', 'theme.css', 'seed.js', 'core.js', 'config.js', 'config.local.js', 'store.js', 'auth.js', 'app.js', 'vendor/jszip.min.js', 'vendor/xlsx.full.min.js'];
 const version = (process.env.GITHUB_SHA || Date.now().toString(36)).slice(0, 7);
 const sha = (process.env.GITHUB_SHA || '').slice(0, 7);
 

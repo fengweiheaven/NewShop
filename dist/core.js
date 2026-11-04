@@ -265,9 +265,31 @@
     if (!file.size) throw new Error('文件为空，请检查后重新选择。');
     const extension = String(file.name || '').split('.').pop().toLowerCase();
     if (extension === 'csv' || extension === 'tsv') return readCsv(file);
-    if (extension === 'xls') throw new Error('暂不支持旧版 .xls，请用 Excel 另存为 .xlsx 后导入。');
-    if (extension !== 'xlsx') throw new Error('请选择 .xlsx 或 UTF-8 .csv 文件。');
-    return readXlsx(file);
+    if (extension === 'xls' || extension === 'et' || extension === 'xlsm') return readLegacy(file);
+    if (extension !== 'xlsx') throw new Error('请选择 .xlsx / .xls / UTF-8 .csv 文件。');
+    try {
+      return await readXlsx(file);
+    } catch (err) {
+      if (window.XLSX) return readLegacy(file);
+      throw err;
+    }
+  }
+
+  async function readLegacy(file) {
+    if (!window.XLSX) throw new Error('旧版 .xls 需要解析组件，请刷新页面后重试，或用 Excel 另存为 .xlsx。');
+    const buffer = await file.arrayBuffer();
+    const book = window.XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true, cellNF: false, cellText: false });
+    const sheets = [];
+    for (const name of book.SheetNames.slice(0, MAX_SHEETS)) {
+      const ws = book.Sheets[name];
+      if (!ws) continue;
+      const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: true })
+        .slice(0, MAX_ROWS)
+        .map(r => (r || []).slice(0, MAX_COLS).map(v => (v == null ? '' : String(v))));
+      if (rows.length) sheets.push({ name: String(name), rows });
+    }
+    if (!sheets.length) throw new Error('没有读到任何工作表，请检查文件内容。');
+    return { name: file.name, sheets };
   }
 
   function detectHeader(rows) {
