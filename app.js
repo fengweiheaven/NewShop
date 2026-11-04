@@ -1405,7 +1405,7 @@
       s.rows.slice(d.header+1).forEach((raw,idx)=>{if(!raw.some(v=>String(v??'').trim()))return;if(headers.every((h,i)=>String(h??'')===String(raw[i]??'')))return;const row={id:uid(),batchId,customer:d.customer,sourceFile:d.book.name,sourceSheet:s.name,sourceRow:d.header+idx+2,excluded:false,manual:false,productId:''};for(const[k]of FIELDS)row[k]=get(raw,k);if(!String(row.sourceSpec||'').trim()){const sp=splitNameSpec(row.productName);if(sp.spec){row.sourceSpec=sp.spec;row.productName=sp.name;}}
     if(!String(row.buyerNickname||'').trim())row.buyerNickname=String(row.recipient||'').trim();row.phone=normalizePhone(row.phone);row.address=[row.province,row.city,row.district,row.address].filter(Boolean).join('');row.quantity=row.quantity===''?'':Number(row.quantity.replace(/,/g,''));if(!Number.isFinite(row.quantity))row.quantity='';if(/^\d{5}(\.\d+)?$/.test(String(row.date||'').trim()))row.date=excelSerialText(row.date);row.raw=Object.fromEntries(headers.map((h,i)=>[String(h||`列${i+1}`),String(raw[i]??'')]));const existing=[...state.orders,...orders].find(o=>!o.excluded&&duplicateKey(o)===duplicateKey(row));if(existing&&row.orderNo)row.duplicateOf=existing.id;orders.push(row);});
       if(!orders.length){$('#import-error').textContent='所选表头下没有可导入的数据。';return;}if(state.orders.length+orders.length>30000){$('#import-error').textContent='工作区最多保留30,000行，请先备份并清理旧批次。';return;}
-      ensureCustomer(d.customer);state.orders.push(...orders);state.batches.push({id:batchId,name:d.book.name,hash:d.hash,customer:d.customer,createdAt:new Date().toISOString(),rowCount:orders.length});includeNewBatch(batchId);state.profiles[headers.map(norm).join('|')]=copy(d.map);invalidate();history(`导入 ${orders.length} 行：${d.book.name}`);await save();pending.shift();closeModal();toast(`已导入 ${orders.length} 条订单明细。`);nextImport();};
+      ensureCustomer(d.customer);state.orders.push(...orders);state.batches.push({id:batchId,name:d.book.name,hash:d.hash,customer:d.customer,createdAt:new Date().toISOString(),rowCount:orders.length,sheetName:s.name,headers:headers.map(h=>String(h==null?'':h))});includeNewBatch(batchId);state.profiles[headers.map(norm).join('|')]=copy(d.map);invalidate();history(`导入 ${orders.length} 行：${d.book.name}`);await save();pending.shift();closeModal();toast(`已导入 ${orders.length} 条订单明细。`);nextImport();};
   }
   function duplicateKey(r){return [norm(r.customer),String(r.orderNo||''),r.sourceLineId||[norm(r.sourceSku),norm(r.productName),norm(r.sourceSpec),norm(r.recipient),norm(r.phone),norm(r.address)].join('|'),r.duplicateDiscriminator||''].join('::');}
   function resolveDuplicateChoice(row,independent){
@@ -1815,28 +1815,33 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   function originalSheetRows(batchId) {
     const rows = shipmentOrders().filter(o => o.batchId === batchId);
     if (!rows.length) return null;
-    const first = rows.find(o => o.raw && Object.keys(o.raw).length) || null;
-    let headers = first ? Object.keys(first.raw) : [];
-    if (!headers.length) headers = ['订单编号', '商品名称', '购买数量', '收货人', '收货人手机号', '收货地址'];
-    const trackCol = headers.find(h => /物流单号|快递单号|运单号|快递编号/.test(String(h)));
-    const carrierCol = headers.find(h => /物流公司|快递公司|承运/.test(String(h)));
-    const outHeaders = headers.slice();
-    if (!trackCol) outHeaders.push('快递单号');
-    if (!carrierCol) outHeaders.push('物流公司');
-    const data = rows.map(o => {
-      const base = o.raw && Object.keys(o.raw).length ? headers.map(h => (o.raw[h] == null ? '' : String(o.raw[h]))) : [
-        o.orderNo || '', o.productName || '', o.quantity == null ? '' : o.quantity, o.recipient || '', o.phone || '', o.address || ''
-      ];
-      const track = String(o.trackingNo || '').trim();
-      const carrier = String(o.carrier || '').trim();
-      if (trackCol) base[headers.indexOf(trackCol)] = track || base[headers.indexOf(trackCol)] || '';
-      if (carrierCol) base[headers.indexOf(carrierCol)] = carrier || base[headers.indexOf(carrierCol)] || '';
-      if (!trackCol) base.push(track);
-      if (!carrierCol) base.push(carrier);
-      return base;
-    });
     const batch = state.batches.find(b => b.id === batchId) || {};
-    return { name: batch.name || '订单', customer: batch.customer || '', headers: outHeaders, rows: data };
+    const first = rows.find(o => o.raw && Object.keys(o.raw).length) || null;
+    let headers = Array.isArray(batch.headers) && batch.headers.length ? batch.headers.slice()
+      : (first ? Object.keys(first.raw) : []);
+    if (!headers.length) headers = ['订单编号', '商品名称', '购买数量', '收货人', '收货人手机号', '收货地址'];
+    const trackIdx = headers.findIndex(h => /物流单号|快递单号|运单号|快递编号|运单编号/.test(String(h)));
+    const carrierIdx = headers.findIndex(h => /物流公司|快递公司|承运/.test(String(h)));
+    const outHeaders = headers.slice();
+    if (trackIdx < 0) outHeaders.push('快递单号');
+    const data = rows.map(o => {
+      const raw = o.raw && Object.keys(o.raw).length ? o.raw : null;
+      const cells = outHeaders.map((h, i) => {
+        if (i === trackIdx) return String(o.trackingNo || '').trim();
+        if (i === carrierIdx) return String(o.carrier || '').trim() || (raw && raw[h] != null ? String(raw[h]) : '');
+        if (raw && raw[h] != null) return String(raw[h]);
+        return '';
+      });
+      if (trackIdx < 0) cells[cells.length - 1] = String(o.trackingNo || '').trim();
+      return cells;
+    });
+    return {
+      name: batch.name || '订单',
+      customer: batch.customer || '',
+      sheetName: batch.sheetName || 'Sheet1',
+      headers: outHeaders,
+      rows: data
+    };
   }
   async function exportCustomerOriginals() {
     const list = shipmentOrders();
@@ -1845,17 +1850,18 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     const sheets = batchIds.map(id => originalSheetRows(id)).filter(Boolean);
     if (!sheets.length) { toast('没有可回填的客户原表。', 'warning'); return; }
     const filled = list.filter(o => String(o.trackingNo || '').trim()).length;
+    const MIME2 = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     if (sheets.length === 1) {
       const sh = sheets[0];
-      const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: '回填补单' });
-      OrderExcel.downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(sh.customer || '客户')}_原表回填_${stamp()}.xlsx`);
+      const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: sh.sheetName });
+      OrderExcel.downloadBlob(new Blob([bytes], { type: MIME2 }), `${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`);
     } else {
       const zip = new JSZip();
       let i = 0;
       for (const sh of sheets) {
         i++;
-        const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: '回填补单' });
-        zip.file(`${String(i).padStart(2, '0')}_${safeName(sh.customer || '客户')}_${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`, bytes);
+        const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: sh.sheetName });
+        zip.file(`${String(i).padStart(2, '0')}_${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`, bytes);
       }
       const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
       OrderExcel.downloadBlob(blob, `客户原表回填_${stamp()}.zip`);
