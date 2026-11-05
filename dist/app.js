@@ -90,7 +90,7 @@
   }
   function migrateScope(v){
     if(!v.fieldAliases||typeof v.fieldAliases!=='object'||Array.isArray(v.fieldAliases))v.fieldAliases={};
-    if(!Array.isArray(v.activeBatchIds))v.activeBatchIds=v.batches.filter(b=>!b.exportedAt).map(b=>b.id);
+    if(!Array.isArray(v.activeBatchIds))v.activeBatchIds=v.batches.map(b=>b.id);
     const ids=new Set(v.batches.map(b=>b.id));v.activeBatchIds=[...new Set(v.activeBatchIds.filter(id=>ids.has(id)))];
     // Quote-sheet fields added later: keep older saved workspaces readable.
     for(const p of v.products){p.barcode??='';p.brand??='';p.category??='';p.cost??='';p.groupPrice??='';p.broadcastPrice??='';p.suggestPrice??='';p.marginOwn??='';p.marginBroadcast??='';p.jdPrice??='';p.link??='';p.sourceFile??='';}
@@ -111,7 +111,7 @@
   function refreshBatchExportFlags(){
     for(const b of state.batches){const rows=state.orders.filter(r=>r.batchId===b.id&&!r.excluded);if(rows.length&&rows.every(r=>r.exportedAt))b.exportedAt=rows.map(r=>r.exportedAt).sort().pop();else delete b.exportedAt;}
   }
-  function includeNewBatch(id){refreshBatchExportFlags();state.activeBatchIds=state.activeBatchIds.filter(bid=>!state.batches.find(b=>b.id===bid)?.exportedAt);if(!state.activeBatchIds.includes(id))state.activeBatchIds.push(id);}
+  function includeNewBatch(id){refreshBatchExportFlags();if(!state.activeBatchIds.includes(id))state.activeBatchIds.push(id);}
   function markExported(rows){const ids=new Set(rows.map(r=>r.id)),time=new Date().toISOString();for(const r of state.orders)if(ids.has(r.id))r.exportedAt=time;refreshBatchExportFlags();}
   async function init() {
     try {
@@ -2015,7 +2015,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     toast(message || '已删除。');
   }
   function manageBatches(){
-    openModal('本次处理批次与历史',`<p class="muted">仅勾选的批次参与本次订单检查与供应商导出。导出记录会保留；下次导入新文件时，已完整导出的旧批次会自动移出本次范围。</p>${state.batches.map(b=>`<div class="batch-row"><label class="checkbox-row"><input type="checkbox" data-scope-batch="${esc(b.id)}" ${state.activeBatchIds.includes(b.id)?'checked':''}><span><strong>${esc(b.name)}</strong><small>${esc(b.customer)} · ${state.orders.filter(r=>r.batchId===b.id).length} 行 · ${b.exportedAt?'已完整导出':'尚未完整导出'}</small></span></label><button class="btn danger small" data-delete-batch="${esc(b.id)}">删除</button></div>`).join('')}`,`<button class="btn secondary" data-cancel>关闭</button>`,true);
+    openModal('本次处理批次与历史',`<p class="muted">仅勾选的批次参与本次订单检查与供应商导出。导入新文件不会移除旧批次，历史批次会一直保留在本次范围里；需要精简时可在这里取消勾选。</p>${state.batches.map(b=>`<div class="batch-row"><label class="checkbox-row"><input type="checkbox" data-scope-batch="${esc(b.id)}" ${state.activeBatchIds.includes(b.id)?'checked':''}><span><strong>${esc(b.name)}</strong><small>${esc(b.customer)} · ${state.orders.filter(r=>r.batchId===b.id).length} 行 · ${b.exportedAt?'已完整导出':'尚未完整导出'}</small></span></label><button class="btn danger small" data-delete-batch="${esc(b.id)}">删除</button></div>`).join('')}`,`<button class="btn secondary" data-cancel>关闭</button>`,true);
     $$('[data-scope-batch]').forEach(el=>el.onchange=async()=>{const id=el.dataset.scopeBatch;state.activeBatchIds=state.activeBatchIds.filter(bid=>bid!==id);if(el.checked)state.activeBatchIds.push(id);page=1;invalidate();await save();render();});
     $$('[data-delete-batch]').forEach(b=>b.onclick=()=>{const batch=state.batches.find(x=>x.id===b.dataset.deleteBatch);confirmDialog('删除订单批次',`确认删除“${batch.name}”及其订单明细？`,async()=>{const ids=new Set(state.orders.filter(r=>r.batchId===batch.id).map(r=>r.id));state.orders=state.orders.filter(r=>r.batchId!==batch.id);state.orders.forEach(r=>{if(ids.has(r.duplicateOf))delete r.duplicateOf;});state.batches=state.batches.filter(x=>x.id!==batch.id);state.activeBatchIds=state.activeBatchIds.filter(id=>id!==batch.id);invalidate();await save();render();toast('批次已删除。');});});
   }
