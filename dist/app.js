@@ -1128,6 +1128,23 @@
       ];
     });
     const scope = supplierFilter === 'all' ? '全部供应商' : (sById(supplierFilter)?.name || '供应商');
+    const quoteRows = [['供应商名称', '品名', '内容物配置', '内部编码', '供应商编码', '客户', '报价（元）']];
+    for (const p of list) {
+      const sup = sById(p.supplierId) || {};
+      for (const q of (p.quotes || [])) {
+        if (!q || !q.customer) continue;
+        quoteRows.push([sup.name || '', p.name || '', p.spec || '', p.internalSku || '', p.supplierSku || '', q.customer, q.price == null ? '' : q.price]);
+      }
+    }
+    if (quoteRows.length > 1 && window.XLSX) {
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet([headers, ...rows]), '商品池');
+      window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(quoteRows), '报价单');
+      const out = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      OrderExcel.downloadBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `商品表_${scope}_${stamp()}.xlsx`);
+      toast(`已导出 ${rows.length} 个商品，含 ${quoteRows.length - 1} 条客户报价。`);
+      return;
+    }
     await OrderExcel.downloadWorkbook({ headers, rows, sheetName: '商品池', filename: `商品表_${scope}_${stamp()}.xlsx` });
     toast(`已导出 ${rows.length} 个商品（${scope}）。`);
   }
