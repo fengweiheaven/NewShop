@@ -35,6 +35,7 @@
   }
 
   async function localSave(state) {
+    writeSnapshot(state);
     const db = await openDb();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -45,6 +46,57 @@
     });
   }
 
+  const SNAP_DB = 'orderflow-snapshots-v1';
+  const SNAP_STORE = 'snaps';
+  const SNAP_LIMIT = 30;
+  let snapPromise = null;
+  function snapDb() {
+    if (snapPromise) return snapPromise;
+    snapPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(SNAP_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(SNAP_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return snapPromise;
+  }
+  async function writeSnapshot(state) {
+    try {
+      const db = await snapDb();
+      const key = new Date().toISOString();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(SNAP_STORE, 'readwrite');
+        tx.objectStore(SNAP_STORE).put(JSON.parse(JSON.stringify(state)), key);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      const keys = await snapshotKeys(db);
+      for (const k of keys.slice(SNAP_LIMIT)) {
+        await new Promise(res => { const tx = db.transaction(SNAP_STORE, 'readwrite'); tx.objectStore(SNAP_STORE).delete(k); tx.oncomplete = res; tx.onerror = res; });
+      }
+    } catch (_) { }
+  }
+  async function snapshotKeys(db) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(SNAP_STORE).objectStore(SNAP_STORE).getAllKeys();
+      req.onsuccess = () => resolve((req.result || []).slice().sort().reverse());
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function snapshots() {
+    const db = await snapDb();
+    const keys = await snapshotKeys(db);
+    const out = [];
+    for (const k of keys) {
+      const value = await new Promise((resolve, reject) => {
+        const req = db.transaction(SNAP_STORE).objectStore(SNAP_STORE).get(k);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      out.push({ key: k, orders: value && value.orders ? value.orders.length : 0, batches: value && value.batches ? value.batches.length : 0, state: value });
+    }
+    return out;
+  }
   function sql() {
     const app = window.OrderAuth && window.OrderAuth.app;
     if (!app) throw new Error('尚未登录，无法访问云端数据。');
@@ -85,6 +137,7 @@
     try {
       await db.from('audit_logs').insert({ uid: uid(), action: 'save', detail: { orders: (state.orders || []).length, rev: lastRev } });
     } catch (_) { }
+    writeSnapshot(state);
   }
 
   const OrderStore = {
@@ -93,7 +146,13 @@
     get rev() { return lastRev; },
     async load() { return CFG.mode === 'cloudbase' ? cloudLoad() : localLoad(); },
     async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); },
-    readLocal: localLoad
+    readLocal: localLoad,
+    snapshots,
+    async restoreSnapshot(key) {
+      const list = await snapshots();
+      const hit = list.find(x => x.key === key);
+      return hit ? hit.state : null;
+    }
   };
 
   window.OrderStore = OrderStore;
