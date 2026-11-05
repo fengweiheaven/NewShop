@@ -150,7 +150,7 @@
   function bindShell() {
     $$('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;query='';page=1;filter='all';render();});
     $('#backup-btn').onclick=()=>{const cloud=OrderStore.mode==='cloudbase';OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_快照_${stamp()}.json`);toast(cloud?'快照已下载（当前云端工作区的完整拷贝）。':'备份已下载，包含本机商品映射和订单数据。');};
-    $('#restore-btn').onclick=()=>$('#restore-input').click();
+    $('#restore-btn').onclick=()=>guardAsync(openRestoreDialog);
     $('#restore-input').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>40*1024*1024)throw Error('备份超过40MB。');const v=JSON.parse(await f.text());validateBackup(v);const cloud=OrderStore.mode==='cloudbase';const tip=cloud?'恢复后会覆盖云端工作区，所有同事看到的数据都会被替换为这份快照。建议先点“备份数据”留一份当前数据。':'恢复后将替换当前浏览器的数据。建议先点击右上角“备份数据”。';confirmDialog('恢复数据备份',tip,async()=>{OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_恢复前快照_${stamp()}.json`);state=v;invalidate();await save();render();toast('已恢复备份；恢复前的数据也已自动下载一份。');});}catch(err){toast(err.message,'warning');}e.target.value='';};
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Tab'&&$('#modal-root .modal')){const a=$$('button,input,select,textarea,[tabindex="0"]',$('#modal-root')).filter(x=>!x.disabled);if(!a.length)return;const first=a[0],last=a[a.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
   }
@@ -291,6 +291,26 @@
     draw();
   }
   const ROLE_OPTIONS = [['admin', '管理员'], ['clerk', '客服'], ['warehouse', '仓库'], ['finance', '财务']];
+  async function openRestoreDialog() {
+    let snaps = [];
+    try { snaps = OrderStore.snapshots ? await OrderStore.snapshots() : []; } catch (e) { snaps = []; }
+    const rows = snaps.slice(0, 12).map(x => `<tr><td class="mono">${esc(new Date(x.key).toLocaleString('zh-CN'))}</td><td class="numeric">${x.orders}</td><td class="numeric">${x.batches}</td><td><button type="button" class="text-link" data-snap="${esc(x.key)}">恢复</button></td></tr>`).join('');
+    openModal('恢复数据', `
+      <p class="muted">优先从本机自动快照恢复（每次保存都会留一份，最多 30 份）；没有合适的快照再选择导出的 JSON 文件。</p>
+      ${rows ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>保存时间</th><th>订单</th><th>批次</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="alert info">本机还没有自动快照。</div>'}
+    `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn secondary" id="restore-from-file">选择备份文件…</button>`, true);
+    $('#restore-from-file').onclick = () => $('#restore-input').click();
+    $('[data-snap]').forEach(b => b.onclick = async () => {
+      const snap = await OrderStore.restoreSnapshot(b.dataset.snap);
+      if (!snap) { toast('快照读取失败。', 'warning'); return; }
+      confirmDialog('用这个快照恢复', `将用 ${new Date(b.dataset.snap).toLocaleString('zh-CN')} 的快照覆盖当前数据（${snap.orders ? snap.orders.length : 0} 条订单）。`, async () => {
+        OrderExcel.downloadBlob(new Blob([JSON.stringify({ ...state, backupAt: new Date().toISOString() }, null, 2)], { type: 'application/json' }), `丰涵代发_恢复前快照_${stamp()}.json`);
+        state = snap; invalidate(); await save(); render(); closeModal();
+        toast('已从本机快照恢复。');
+      });
+    });
+  }
+
   async function membersModal() {
     if (!window.OrderAuth || !window.OrderAuth.app) { toast('云端模式才能管理成员。', 'warning'); return; }
     const db = window.OrderAuth.app.rdb();
