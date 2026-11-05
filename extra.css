@@ -274,3 +274,14 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 /* 历史批次提示 */
 .batch-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
 .batch-hint button{margin-left:auto}
+
+/* 闲置锁定 */
+body.idle-locked{overflow:hidden}
+#idle-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(12,22,29,.55);backdrop-filter:blur(3px)}
+.idle-card{width:min(420px,calc(100vw - 40px));background:#fff;border-radius:18px;padding:26px 26px 22px;box-shadow:0 30px 80px rgba(8,20,28,.35);text-align:center}
+.idle-icon{width:46px;height:46px;margin:0 auto 12px;border-radius:14px;background:#eaf6f3;color:#0e7a70;display:flex;align-items:center;justify-content:center}
+.idle-icon svg{width:22px;height:22px}
+.idle-card h2{margin:0 0 8px;font-size:17px;color:#16252e}
+.idle-card p{margin:0 0 10px;font-size:13px;color:#4b6069;line-height:1.7}
+.idle-card p.muted{color:#8b979f;font-size:12px}
+.idle-card .btn{margin-top:8px;width:100%}
