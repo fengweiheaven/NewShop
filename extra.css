@@ -289,3 +289,9 @@ body.idle-locked{overflow:hidden}
 /* 闲置锁定按钮组 */
 .idle-actions{display:flex;gap:10px;margin-top:8px}
 .idle-actions .btn{flex:1;margin-top:0}
+
+/* 报价单客户筛选 */
+.quote-filter{display:flex;align-items:center;gap:10px;margin:2px 0 10px}
+.quote-filter input{flex:1;max-width:320px;height:32px}
+.quote-filter .muted{font-size:11px;white-space:nowrap}
+.quote-check[hidden]{display:none}

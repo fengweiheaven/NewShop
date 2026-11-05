@@ -1216,7 +1216,7 @@
     const rowHtml = (name, price) => `<tr data-qrow="${esc(name)}"><td>${esc(name)}</td><td><input type="number" min="0" step="0.01" data-qprice value="${esc(price == null ? '' : price)}" placeholder="输入报价" aria-label="${esc(name)} 报价"></td><td><button type="button" class="text-link danger" data-qdel>移除</button></td></tr>`;
     openModal(`报价单 · ${p.name}`, `
       <p class="muted">勾选需要报价的客户，填好价格后保存。没勾选的客户不会计入对账金额。</p>
-      ${custs.length ? `<div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${current.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
+      ${custs.length ? `<div class="quote-filter"><input id="q-filter" type="search" placeholder="输入客户名快速筛选，例如 广州" autocomplete="off"><span class="muted" id="q-filter-count">共 ${custs.length} 个客户</span></div><div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${current.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
       <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody id="q-body">
         ${[...current.values()].map(d => rowHtml(d.customer, d.price)).join('')}
       </tbody></table></div>
@@ -1237,6 +1237,17 @@
     };
     body.querySelectorAll('tr[data-qrow]').forEach(bindRow);
 
+    $('#q-filter')?.addEventListener('input', e => {
+      const q = norm(e.target.value);
+      let shown = 0;
+      $$('.quote-check').forEach(label => {
+        const hit = !q || norm(label.textContent).includes(q);
+        label.hidden = !hit;
+        if (hit) shown++;
+      });
+      const cnt = $('#q-filter-count');
+      if (cnt) cnt.textContent = q ? `匹配 ${shown} 个客户` : `共 ${state.customers.length} 个客户`;
+    });
     $$('[data-qpick]').forEach(cb => cb.onchange = () => {
       const name = cb.dataset.qpick;
       const existing = body.querySelector(`tr[data-qrow="${name.replace(/"/g, '\\"')}"]`);
