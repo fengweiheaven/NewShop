@@ -192,14 +192,22 @@
       el.innerHTML = `<div class="idle-card" role="alertdialog" aria-modal="true" aria-labelledby="idle-title">
         <div class="idle-icon">${icon('clock')}</div>
         <h2 id="idle-title">离开太久了</h2>
-        <p>请刷新系统后再次开始工作吧，这样才能看到最新的订单和最新的版本。</p>
-        <p class="muted">刷新后未保存的改动会丢失，如有未保存内容请先截图留存。</p>
-        <button type="button" class="btn" id="idle-reload">刷新并继续</button>
+        <p>建议刷新系统后再开始工作，这样能看到最新的订单和最新的版本。</p>
+        <p class="muted">如果手上有还没保存的内容，也可以先继续操作，稍后再刷新。</p>
+        <div class="idle-actions"><button type="button" class="btn secondary" id="idle-resume">继续操作</button><button type="button" class="btn" id="idle-reload">刷新并继续</button></div>
       </div>`;
       document.body.appendChild(el);
       document.body.classList.add('idle-locked');
+      const resume = el.querySelector('#idle-resume');
       const btn = el.querySelector('#idle-reload');
-      btn.addEventListener('click', () => { btn.disabled = true; btn.textContent = '正在刷新…'; location.reload(); });
+      btn.addEventListener('click', () => { btn.disabled = true; resume.disabled = true; btn.textContent = '正在刷新…'; location.reload(); });
+      resume.addEventListener('click', () => {
+        sleeping = false;
+        last = Date.now();
+        document.body.classList.remove('idle-locked');
+        el.remove();
+        toast('已继续操作；数据可能不是最新，稍后记得刷新一次。', 'warning');
+      });
       btn.focus();
     };
 

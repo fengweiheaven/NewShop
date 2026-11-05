@@ -285,3 +285,7 @@ body.idle-locked{overflow:hidden}
 .idle-card p{margin:0 0 10px;font-size:13px;color:#4b6069;line-height:1.7}
 .idle-card p.muted{color:#8b979f;font-size:12px}
 .idle-card .btn{margin-top:8px;width:100%}
+
+/* 闲置锁定按钮组 */
+.idle-actions{display:flex;gap:10px;margin-top:8px}
+.idle-actions .btn{flex:1;margin-top:0}
