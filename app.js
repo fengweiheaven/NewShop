@@ -1903,6 +1903,14 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
       if (phone) push(byPhone, phone, o);
       if (name) push(byName, name, o);
     }
+    const noKey = v => String(v == null ? '' : v).toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const byNo = new Map();
+    for (const o of orders) {
+      const k = noKey(o.orderNo);
+      if (!k) continue;
+      if (!byNo.has(k)) byNo.set(k, []);
+      byNo.get(k).push(o);
+    }
     const uniq = list => { if (!list || !list.length) return null; return new Set(list.map(o => o.id)).size === 1 ? list[0] : null; };
     return rows.map((row, index) => {
       const phone = normalizePhone(cell(row, 'phone'));
@@ -1910,7 +1918,11 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
       const addr = norm(cell(row, 'address'));
       const nearAddr = list => (list || []).filter(o => { const a = norm(o.address); return a && addr && (a.includes(addr) || addr.includes(a)); });
       let hit = null, how = '';
+      const orderNoKey = noKey(cell(row, 'orderNo'));
+      let noHits = orderNoKey ? byNo.get(orderNoKey) : null;
+      if (!noHits && orderNoKey) { const digits = orderNoKey.replace(/[^0-9]/g, ''); if (digits && digits !== orderNoKey) noHits = byNo.get(digits); }
       const tiers = [
+        [noHits || null, '订单号'],
         [phone && name ? byPhoneName.get(phone + '|' + name) : null, '电话+收货人'],
         [phone ? byPhone.get(phone) : null, '电话'],
         [name && addr ? nearAddr(byName.get(name)) : null, '收货人+地址'],
@@ -1944,8 +1956,8 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
             ${field('表头所在行', 's-header', d.header + 1, { type: 'number', hint: '第 1 行起算' })}
             ${selectField('订单号写到哪一列', 's-target', [...headers.map((h, i) => [String(i), `${String(h || `列${i + 1}`).replace(/\s+/g, ' ').slice(0, 20)}（覆盖该列）`]), ['new', '追加新列「订单号」']], targetIndex >= 0 ? String(targetIndex) : 'new', true)}
           </div>
-          <h3 class="section-label">匹配用的列</h3>
-          <div class="map-grid">${SHIPMENT_FIELDS.filter(([k]) => k !== 'orderNo').map(([k, label]) => `<label class="map-item"><span>${esc(label)}</span><select name="s-map-${k}"><option value="-1">没有此列</option>${headers.map((h, i) => `<option value="${i}" ${d.map[k] === i ? 'selected' : ''}>${esc(String(h == null || h === '' ? `列${i + 1}` : h).replace(/\s+/g, ' ').slice(0, 24))}</option>`).join('')}</select></label>`).join('')}</div>
+          <h3 class="section-label">匹配用的列</h3><p class="muted" style="margin:-4px 0 8px">优先按「订单号列」匹配；没有订单号或匹配不到时，再按 电话+收货人 / 收货人+地址 兜底。</p>
+          <div class="map-grid">${SHIPMENT_FIELDS.map(([k, label]) => `<label class="map-item"><span>${esc(label)}</span><select name="s-map-${k}"><option value="-1">没有此列</option>${headers.map((h, i) => `<option value="${i}" ${d.map[k] === i ? 'selected' : ''}>${esc(String(h == null || h === '' ? `列${i + 1}` : h).replace(/\s+/g, ' ').slice(0, 24))}</option>`).join('')}</select></label>`).join('')}</div>
           <p class="muted">按「电话+收货人」优先匹配本次批次里已填订单号的明细，其次电话、收货人+地址、收货人；一条对多单时不回填，留给人工核对。</p>
           <p class="form-error" id="shipment-error"></p>
         `, `<button class="btn secondary" data-cancel>取消</button><button class="btn" id="run-shipment">开始匹配</button>`, true);
