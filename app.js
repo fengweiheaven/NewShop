@@ -129,11 +129,43 @@
     }
     if(storageFailure)toast('浏览器未允许本地存储，请在关闭前导出备份。','warning');
   }
+  function mergeOnlyAdditions(remote, local) {
+    if (!remote || !Array.isArray(remote.orders) || !Array.isArray(local.orders)) return null;
+    const rIds = new Set(remote.orders.map(o => o.id));
+    const rBatches = new Set((remote.batches || []).map(b => b.id));
+    const addedOrders = local.orders.filter(o => !rIds.has(o.id));
+    const addedBatches = (local.batches || []).filter(b => !rBatches.has(b.id));
+    if (local.orders.length - addedOrders.length !== remote.orders.length) return null;
+    if ((local.batches || []).length - addedBatches.length !== (remote.batches || []).length) return null;
+    if (!addedOrders.length && !addedBatches.length) return null;
+    const merged = copy(remote);
+    merged.orders = [...remote.orders, ...addedOrders];
+    merged.batches = [...(remote.batches || []), ...addedBatches];
+    merged.activeBatchIds = [...new Set([...(remote.activeBatchIds || []), ...addedBatches.map(b => b.id)])];
+    const names = new Set((remote.customers || []).map(c => norm(c.name)));
+    const extraCustomers = (local.customers || []).filter(c => !names.has(norm(c.name)));
+    merged.customers = [...(remote.customers || []), ...extraCustomers];
+    merged.history = [...(remote.history || []), { at: new Date().toISOString(), text: '检测到他人更新，已自动合并本次导入' }].slice(-200);
+    return merged;
+  }
+
   async function save() {
     try { await OrderStore.save(copy(state)); }
     catch(e){
       const msg = e && e.message ? e.message : '保存失败，请立即备份数据。';
       if ((e && e.conflict) || /已被他人修改/.test(msg)) {
+        try {
+          const remote = await OrderStore.load();
+          const merged = mergeOnlyAdditions(remote && remote.state, state);
+          if (merged) {
+            state = merged;
+            invalidate();
+            await OrderStore.save(copy(state));
+            render();
+            toast('检测到其他人刚更新了数据，本次导入已自动合并到最新数据上。');
+            return;
+          }
+        } catch (err2) { console.warn('[OrderFlow] 自动合并失败', err2); }
         window.__saveFailedAt = Date.now();
         setTimeout(() => openModal('保存失败：数据冲突', `<p>本次写入由于其他人刚刚修改了同一份数据而失败，<strong>你这次的修改没有被保存</strong>。</p><p class="muted">请刷新页面获取最新数据后，再重新操作一次。</p>`, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="conflict-reload">刷新页面</button>`, true), 0);
         setTimeout(() => { const btn = $('#conflict-reload'); if (btn) btn.onclick = () => location.reload(); }, 0);
@@ -2048,7 +2080,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
     $$('[data-delete-batch]').forEach(b=>b.onclick=()=>{const batch=state.batches.find(x=>x.id===b.dataset.deleteBatch);confirmDialog('删除订单批次',`确认删除“${batch.name}”及其订单明细？`,async()=>{const ids=new Set(state.orders.filter(r=>r.batchId===batch.id).map(r=>r.id));state.orders=state.orders.filter(r=>r.batchId!==batch.id);state.orders.forEach(r=>{if(ids.has(r.duplicateOf))delete r.duplicateOf;});state.batches=state.batches.filter(x=>x.id!==batch.id);state.activeBatchIds=state.activeBatchIds.filter(id=>id!==batch.id);invalidate();await save();render();toast('批次已删除。');});});
   }
   async function loadDemo(){if(state.batches.some(b=>b.demo)){toast('演示数据已经载入，可在“管理导入批次”中删除。','warning');return;}const add=async()=>{const id=uid();state.batches.push({id,name:'演示订单（模拟数据）.xlsx',customer:'演示客户',hash:'demo-'+id,demo:true,createdAt:new Date().toISOString()});for(let i=0;i<6;i++){const c=OrderSeed.candidates[i<2?0:i<5?1:2];state.orders.push({id:uid(),batchId:id,customer:c.customer,orderNo:'DEMO-'+String(i+1).padStart(4,'0'),productName:c.name,sourceSku:c.sourceSku||'',sourceSpec:c.customer==='GBH'?'早餐代餐':'',sourceLineId:'demo-'+i,quantity:1,recipient:'模拟收件人'+(i+1),phone:'1380000000'+i,address:'示例省示例市示例区演示路'+(i+1)+'号（模拟地址）',buyerNickname:'',remark:'模拟数据，请勿实际发货',date:stamp(),unitPrice:'',sourceFile:'演示订单（模拟数据）.xlsx',sourceSheet:'模拟数据',sourceRow:i+2,excluded:false,manual:false,raw:{说明:'模拟数据，请勿实际发货'}});}includeNewBatch(id);invalidate();await save();render();toast('已载入6条模拟订单，请确认商品映射。');};if(activeRows().length)confirmDialog('加入演示订单','将新增6条模拟订单，可在批次管理中删除。本次选中的批次会一同参与后续生成。',add);else await add();}
-  window.OrderFlow={getState:()=>copy(state),status,summary,findProducts,validateBackup,exportIssues,templateValue,UNIFIED,autoMap,activeRows,duplicateKey};
+  window.OrderFlow={getState:()=>copy(state),status,summary,findProducts,validateBackup,exportIssues,templateValue,UNIFIED,autoMap,activeRows,duplicateKey,mergeOnlyAdditions};
   document.addEventListener('orderflow:members', () => membersModal());
   const boot=()=>{ if (window.OrderAuth && window.OrderAuth.ready) window.OrderAuth.ready.then(() => init()); else init(); };
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',boot):boot();
