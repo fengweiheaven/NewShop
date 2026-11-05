@@ -121,6 +121,7 @@
     if(!state || state.version!==1) state=seed();
     try{migrateScope(state);}catch(e){console.error("[OrderFlow] 数据迁移失败",e);}
     bindShell();
+    try { startIdleGuard(); } catch (e) { console.warn('[OrderFlow] 闲置保护启动失败', e); }
     try{render();}catch(e){
       console.error("[OrderFlow] 页面渲染失败",e);
       const box=document.getElementById("content");
@@ -174,6 +175,41 @@
       storageFailure = true;
       toast(msg, 'warning');
     }
+  }
+  function startIdleGuard() {
+    let last = Date.now();
+    let sleeping = false;
+    const idleMs = () => Number(window.__ORDERFLOW_IDLE_MS) || 30 * 60 * 1000;
+    const touch = () => { if (!sleeping) last = Date.now(); };
+    ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { last = Date.now(); } });
+
+    const show = () => {
+      if (sleeping) return;
+      sleeping = true;
+      const el = document.createElement('div');
+      el.id = 'idle-overlay';
+      el.innerHTML = `<div class="idle-card" role="alertdialog" aria-modal="true" aria-labelledby="idle-title">
+        <div class="idle-icon">${icon('clock')}</div>
+        <h2 id="idle-title">离开太久了</h2>
+        <p>请刷新系统后再次开始工作吧，这样才能看到最新的订单和最新的版本。</p>
+        <p class="muted">刷新后未保存的改动会丢失，如有未保存内容请先截图留存。</p>
+        <button type="button" class="btn" id="idle-reload">刷新并继续</button>
+      </div>`;
+      document.body.appendChild(el);
+      document.body.classList.add('idle-locked');
+      const btn = el.querySelector('#idle-reload');
+      btn.addEventListener('click', () => { btn.disabled = true; btn.textContent = '正在刷新…'; location.reload(); });
+      btn.focus();
+    };
+
+    const check = () => {
+      if (sleeping) return;
+      if (Date.now() - last >= idleMs()) show();
+    };
+    setInterval(check, 15000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
   }
   function toast(msg,type='success') {
     if (type !== 'warning' && Date.now() - (window.__saveFailedAt || 0) < 400) return;
