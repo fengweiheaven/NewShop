@@ -1967,16 +1967,32 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
             createdAt: new Date().toISOString()
           };
           let filled = 0;
+          const byOrder = new Map();
           for (const m of matched) {
             if (!m.orderId) continue;
-            const order = state.orders.find(o => o.id === m.orderId);
-            if (!order) continue;
-            if (m.tracking && order.trackingNo !== m.tracking) { order.trackingNo = m.tracking; filled++; }
-            if (m.carrier) order.carrier = m.carrier;
+            if (!byOrder.has(m.orderId)) byOrder.set(m.orderId, { tracks: [], carriers: [] });
+            const g = byOrder.get(m.orderId);
+            const t = String(m.tracking || '').trim();
+            if (t && !g.tracks.some(x => norm(x) === norm(t))) g.tracks.push(t);
+            const c = String(m.carrier || '').trim();
+            if (c && !g.carriers.includes(c)) g.carriers.push(c);
           }
-          if (filled) await save();
+          for (const [id, g] of byOrder) {
+            const order = state.orders.find(o => o.id === id);
+            if (!order) continue;
+            const all = String(order.trackingNo || '').split(/[；;,\s]+/).map(x => x.trim()).filter(Boolean);
+            for (const t of g.tracks) if (!all.some(x => norm(x) === norm(t))) all.push(t);
+            const joined = all.join('；');
+            if (joined && joined !== order.trackingNo) { order.trackingNo = joined; filled++; }
+            if (g.carriers.length) {
+              const cs = String(order.carrier || '').split(/[；;,]+/).map(x => x.trim()).filter(Boolean);
+              for (const c of g.carriers) if (!cs.includes(c)) cs.push(c);
+              if (cs.length) order.carrier = cs.join('；');
+            }
+          }
+if (filled) await save();
           closeModal(); render();
-          toast(`已匹配 ${matched.filter(m => m.orderNo).length} / ${matched.length} 行${filled ? `，${filled} 条快递单号已写回订单` : ''}。`);
+          toast(`已匹配 ${matched.filter(m => m.orderNo).length} / ${matched.length} 行${filled ? `，已回填 ${filled} 个订单（同一订单多行单号会自动合并）` : ''}。`);
         });
       };
       draw();
@@ -2009,7 +2025,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   function renderShipment() {
     const st = shipmentStats();
     const hasOrders = shipmentOrders().length > 0;
-    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>流程：客户订单 → 按供应商格式导出 → 供应商返回带快递单号的表 → 在这里导入并匹配回客户订单 → 导出「客户原表回填」交给客户。默认只看今天导出的订单。</p></div><div class="intro-actions">${(() => { const n = shipmentOrders().filter(o => String(o.trackingNo || '').trim()).length; return `<button class="btn secondary" id="export-customer-ship" ${n ? '' : 'disabled'}>${icon('download')} 按客户汇总（${n}）</button><button class="btn" id="export-origin-ship">${icon('download')} 回填客户原表</button>`; })()}${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
+    return `<div class="page-intro"><div><div class="eyebrow">TRACKING BACKFILL</div><h1>快递回来了，订单号补上</h1><p>流程：客户订单 → 按供应商格式导出 → 供应商返回带快递单号的表 → 在这里导入并匹配回客户订单（同一订单多行单号会合并，用；分隔）→ 导出「客户原表回填」交给客户。默认只看今天导出的订单。</p></div><div class="intro-actions">${(() => { const n = shipmentOrders().filter(o => String(o.trackingNo || '').trim()).length; return `<button class="btn secondary" id="export-customer-ship" ${n ? '' : 'disabled'}>${icon('download')} 按客户汇总（${n}）</button><button class="btn" id="export-origin-ship">${icon('download')} 回填客户原表</button>`; })()}${shipment ? `<button class="btn secondary" id="shipment-reset">重新选择文件</button><button class="btn" id="shipment-download">${icon('download')} 下载回填表</button>` : ''}</div></div>
       ${(() => { const exp = shipmentOrders(); const filled = exp.filter(o => String(o.trackingNo || '').trim()).length; return `<div class="stats-grid">${[['box','已导出订单',exp.length,'按供应商格式导出过的明细'],['check','已回填单号',filled,'订单上已有快递单号'],['clock','待回填',exp.length - filled,'还没写回单号']].map(([ic,l,v,n]) => `<article class="stat-card"><div class="stat-icon blue">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`; })()}
       ${!hasOrders ? `<div class="alert warning">${icon('shield')}<span>还没有已导出的订单。先到「订单采集与匹配」把订单匹配好，再点「按供应商导出 → 导出 Excel」，导出的明细才会出现在这里。</span></div>` : ''}
       <section class="card"><div class="card-header"><div><h2>上传快递单号表</h2><p class="muted">支持 .xlsx / UTF-8 CSV；原表列结构保持不动，只在订单号列写入值。</p></div><label class="date-filter"><span>导出日期</span><select id="shipment-date"><option value="all">全部（${activeRows().filter(r=>r.exportedAt&&!r.excluded).length}）</option>${DATE_RANGES.map(([k,label])=>`<option value="${k}" ${shipmentDate===k?'selected':''}>${label} ${rangeText(k)}（${activeRows().filter(r=>r.exportedAt&&!r.excluded&&inDateFilter(exportDateOf(r),k)).length}）</option>`).join('')}<option value="----" disabled>──────</option>${shipmentDateOptions().map(([d,n])=>`<option value="${esc(d)}" ${shipmentDate===d?'selected':''}>${esc(d)}（${n}）</option>`).join('')}</select></label></div><div class="card-body"><div class="dropzone compact" id="shipment-drop" tabindex="0" role="button" aria-label="选择或拖入快递单号表"><div class="upload-icon">${icon('upload')}</div><div class="dz-text"><h3>拖入快递单号表，或 <span class="text-link">选择文件</span></h3><p>支持 .xlsx / UTF-8 CSV，单文件不超过 15 MB · <span class="drop-hint">自动识别收货人、电话、地址、快递单号</span></p></div><input id="shipment-file" type="file" accept=".xlsx,.xls,.csv" hidden></div></section>
