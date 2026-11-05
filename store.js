@@ -148,6 +148,7 @@
     async save(state) { return CFG.mode === 'cloudbase' ? cloudSave(state) : localSave(state); },
     readLocal: localLoad,
     snapshots,
+    pushSnapshot: state => writeSnapshot(state),
     async restoreSnapshot(key) {
       const list = await snapshots();
       const hit = list.find(x => x.key === key);

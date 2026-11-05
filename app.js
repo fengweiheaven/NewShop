@@ -1431,7 +1431,17 @@
   const guardAsync=async fn=>{try{await fn();}catch(e){toast(e.message||'操作失败，请重试。','warning');}};
   function bindOrderActions(){$$('[data-del-order]').forEach(b=>b.onclick=()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{await deleteOrders([b.dataset.delOrder],'已删除 1 条明细。');}));$$('[data-edit-order]').forEach(b=>b.onclick=()=>orderModal(b.dataset.editOrder));$$('[data-page]').forEach(b=>b.onclick=()=>{page=Number(b.dataset.page);$('#orders-table').innerHTML=orderTable();bindOrderActions();});}
   function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-quote-product]').forEach(b=>b.onclick=()=>quoteModal(b.dataset.quoteProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
-  async function queueFiles(files){if(!files?.length)return;const list=Array.from(files);if(list.length>30){toast('每次最多导入30个文件。','warning');return;}let failed=0;for(const f of list){try{if(f.size>15*1024*1024)throw Error('文件超过15MB');const ab=await f.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',ab))).map(v=>v.toString(16).padStart(2,'0')).join('');if(state.batches.some(b=>b.hash===hash)||pending.some(p=>p.hash===hash)){toast(`已跳过重复文件：${f.name}`,'warning');continue;}const book=await OrderExcel.read(f);pending.push({book,hash});}catch(e){failed++;toast(`${f.name}：${e.message}`,'warning');}}if(pending.length)nextImport();else if(!failed)toast('所选文件已导入过。','warning');}
+  async function queueFiles(files){if(!files?.length)return;
+  if (OrderStore.mode === 'cloudbase') {
+    try {
+      const fresh = await OrderStore.load();
+      if (fresh && fresh.state) {
+        state = fresh.state;
+        try { migrateScope(state); } catch (_) {}
+        invalidate(); render();
+      }
+    } catch (e) { console.warn('[OrderFlow] 导入前同步最新数据失败', e); }
+  }const list=Array.from(files);if(list.length>30){toast('每次最多导入30个文件。','warning');return;}let failed=0;for(const f of list){try{if(f.size>15*1024*1024)throw Error('文件超过15MB');const ab=await f.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',ab))).map(v=>v.toString(16).padStart(2,'0')).join('');if(state.batches.some(b=>b.hash===hash)||pending.some(p=>p.hash===hash)){toast(`已跳过重复文件：${f.name}`,'warning');continue;}const book=await OrderExcel.read(f);pending.push({book,hash});}catch(e){failed++;toast(`${f.name}：${e.message}`,'warning');}}if(pending.length)nextImport();else if(!failed)toast('所选文件已导入过。','warning');}
   function inferCustomer(name){
     const base = String(name == null ? '' : name).replace(/\.(xlsx|xls|xlsm|csv|tsv|et)$/i, '');
     const t = norm(base);
@@ -1493,7 +1503,7 @@
       toast('已删除该规则。');
     });
     $('#skip-import').onclick=()=>{pending.shift();closeModal();nextImport();};
-    $('#confirm-import').onclick=async()=>{capture();if(!d.customer){$('#import-error').textContent=state.customers.length?'请选择来源客户。':'客户库里还没有客户，请先到「客户库」新增客户，再回来上传订单。';return;}
+    $('#confirm-import').onclick=async()=>{capture();if(window.OrderStore&&OrderStore.pushSnapshot){try{OrderStore.pushSnapshot(copy(state));}catch(e){}}if(!d.customer){$('#import-error').textContent=state.customers.length?'请选择来源客户。':'客户库里还没有客户，请先到「客户库」新增客户，再回来上传订单。';return;}
       if(!state.customers.some(c=>norm(c.name)===norm(d.customer))){$('#import-error').textContent='客户库里没有「'+d.customer+'」，请先到客户库新增，或从下拉里选择已有客户。';return;}if(d.map.productName===''){ $('#import-error').textContent='请至少指定商品名称字段。';return;}if(d.map.sourceSku!==''&&norm(headers[Number(d.map.sourceSku)])===norm('订单商品编号')){$('#import-error').textContent='订单商品编号不能作为稳定商品编码，请改选或留空。';return;}
       const batchId=uid(),orders=[],get=(r,k)=>d.map[k]===''?'':String(r[Number(d.map[k])]??'').trim();
       s.rows.slice(d.header+1).forEach((raw,idx)=>{if(!raw.some(v=>String(v??'').trim()))return;if(headers.every((h,i)=>String(h??'')===String(raw[i]??'')))return;const row={id:uid(),batchId,customer:d.customer,sourceFile:d.book.name,sourceSheet:s.name,sourceRow:d.header+idx+2,excluded:false,manual:false,productId:''};for(const[k]of FIELDS)row[k]=get(raw,k);if(!String(row.sourceSpec||'').trim()){const sp=splitNameSpec(row.productName);if(sp.spec){row.sourceSpec=sp.spec;row.productName=sp.name;}}
