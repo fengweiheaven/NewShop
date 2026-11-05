@@ -41,7 +41,7 @@
   };
   const icon = (name,cls='') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.file}</svg>`;
   const FIELDS = [
-    ['orderNo','订单号',['订单编号','订单号','订单编码','外部订单号','订单号码']],
+    ['orderNo','订单号',['订单编号','网单编号','网单号','订单号','订单编码','外部订单号','订单号码']],
     ['productName','商品名称',['商品名称','产品名称','货品名称','品名','名称','商品','标准商品名','商品标题','宝贝名称']],
     ['quantity','数量',['购买数量','商品数量','数量','件数','订购数量','销售数量','采购数量','发货数量']],
     ['recipient','收货人',['收货人/提货人','收货人','收件人','收货姓名','收件姓名','收货人姓名','收件人姓名']],
