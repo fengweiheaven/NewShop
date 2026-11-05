@@ -68,7 +68,7 @@
   ].map(t => Object.assign({}, t, { columns: t.columns.map(c => ({ header: c[0], field: c[1], fallback: c[2] || '', required: !!c[3] })) }));
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
   let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
-  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],recharges:[],profiles:{},unified:null,history:[]});
+  const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],recharges:[],profiles:{},fieldAliases:{},unified:null,history:[]});
   const pById = id => state.products.find(p=>p.id===id);
   const sById = id => state.suppliers.find(s=>s.id===id);
   const invalidate = () => { state.unified=null; };
@@ -89,6 +89,7 @@
     return n;
   }
   function migrateScope(v){
+    if(!v.fieldAliases||typeof v.fieldAliases!=='object'||Array.isArray(v.fieldAliases))v.fieldAliases={};
     if(!Array.isArray(v.activeBatchIds))v.activeBatchIds=v.batches.filter(b=>!b.exportedAt).map(b=>b.id);
     const ids=new Set(v.batches.map(b=>b.id));v.activeBatchIds=[...new Set(v.activeBatchIds.filter(id=>ids.has(id)))];
     // Quote-sheet fields added later: keep older saved workspaces readable.
@@ -1375,7 +1376,9 @@
   }
   function autoMap(headers){
     const out={};
-    for(const [key,,names]of FIELDS){
+    for(const [key,,baseNames]of FIELDS){
+      const extra=(state.fieldAliases&&state.fieldAliases[key])||[];
+      const names=[...extra,...baseNames];
       let best=-1,bestScore=0;
       (headers||[]).forEach((h,i)=>{
         const t=norm(h);if(!t)return;
@@ -1393,11 +1396,33 @@
   }
   function nextImport(){if(!pending.length){render();return;}const p=pending[0];const s=p.book.sheets.find(s=>s.rows.length>1)||p.book.sheets[0];const idx=p.book.sheets.indexOf(s);const header=OrderExcel.detectHeader(s.rows);importDraft={...p,sheet:idx,header,customer:inferCustomer(p.book.name),map:{}};showImportModal(true);}
   function showImportModal(reset=false){const d=importDraft,s=d.book.sheets[d.sheet],headers=s.rows[d.header]||[];if(reset){const signature=headers.map(norm).join('|');const auto=autoMap(headers),saved=state.profiles[signature]||{};d.map={};for(const [k] of FIELDS)d.map[k]=(saved[k]===undefined||saved[k]==='')?auto[k]:saved[k];}
-    openModal(`确认导入字段 · ${pending.length} 个文件待处理`,`<div class="alert info">${icon('file')} ${esc(d.book.name)} · 请选择来源客户及正确的表头行。客户需先在「客户库」里登记。</div>${d.customer?`<p class="muted form-hint-line">已按文件名自动匹配来源客户：<strong>${esc(d.customer)}</strong>，如有误可直接改。</p>`:state.customers.length?'<p class="muted form-hint-line">文件名里没有匹配到客户，请手动选择；下拉里也没有的话先去「客户库」新增。</p>':`<div class="alert warning">${icon('shield')}<span>客户库还是空的。请先到「客户库」新增客户，再回来上传订单。</span></div>`}<form id="import-form"><div class="form-grid">${(() => { const c=state.customers.map(x=>x.name); return `<div class="field"><label for="customer-input">来源客户</label><div class="combo"><input id="customer-input" name="customerName" autocomplete="nope" spellcheck="false" placeholder="点击选择客户，或输入关键字筛选" value="${esc(d.customer||'')}"><button type="button" class="combo-toggle" id="customer-toggle" aria-label="展开客户列表">${icon('arrow')}</button><div class="combo-list" id="customer-list" hidden></div></div><small class="muted">共 ${c.length} 个客户，可输入关键字筛选</small></div>`; })()}${selectField('工作表','sheet',d.book.sheets.map((s,i)=>[i,`${s.name}（${Math.max(0,s.rows.length-1)} 行）`]),d.sheet)}${field('表头在第几行','header',d.header+1,{type:'number',hint:'选择前20行内的表头'})}<div class="field"><span>预计读取</span><div class="read-count">${Math.max(0,s.rows.length-d.header-1)} 行数据</div></div></div><h3 class="section-label">来源字段对应关系</h3><div class="form-grid">${FIELDS.map(([key,label])=>selectField(label,'map-'+key,[['','不读取 / 未提供'],...headers.map((h,i)=>[String(i),`${String.fromCharCode(65+Math.floor(i/26)-1).replace('@','')}${String.fromCharCode(65+i%26)} · ${h||'空白列'}`])],d.map[key]??'')).join('')}</div><div class="alert warning">“订单商品编号”是订单明细 ID。商品映射请使用“客户商品编码”或商品名称与规格。</div><h3 class="section-label">来源预览（前2行）</h3><div class="table-wrap compact"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.rows.slice(d.header+1,d.header+3).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p id="import-error" class="form-error" role="alert"></p></form>`,`<button class="btn secondary" id="skip-import">跳过此文件</button><button class="btn" id="confirm-import">确认导入并匹配</button>`,true);
+    openModal(`确认导入字段 · ${pending.length} 个文件待处理`,`<div class="alert info">${icon('file')} ${esc(d.book.name)} · 请选择来源客户及正确的表头行。客户需先在「客户库」里登记。</div>${d.customer?`<p class="muted form-hint-line">已按文件名自动匹配来源客户：<strong>${esc(d.customer)}</strong>，如有误可直接改。</p>`:state.customers.length?'<p class="muted form-hint-line">文件名里没有匹配到客户，请手动选择；下拉里也没有的话先去「客户库」新增。</p>':`<div class="alert warning">${icon('shield')}<span>客户库还是空的。请先到「客户库」新增客户，再回来上传订单。</span></div>`}<form id="import-form"><div class="form-grid">${(() => { const c=state.customers.map(x=>x.name); return `<div class="field"><label for="customer-input">来源客户</label><div class="combo"><input id="customer-input" name="customerName" autocomplete="nope" spellcheck="false" placeholder="点击选择客户，或输入关键字筛选" value="${esc(d.customer||'')}"><button type="button" class="combo-toggle" id="customer-toggle" aria-label="展开客户列表">${icon('arrow')}</button><div class="combo-list" id="customer-list" hidden></div></div><small class="muted">共 ${c.length} 个客户，可输入关键字筛选</small></div>`; })()}${selectField('工作表','sheet',d.book.sheets.map((s,i)=>[i,`${s.name}（${Math.max(0,s.rows.length-1)} 行）`]),d.sheet)}${field('表头在第几行','header',d.header+1,{type:'number',hint:'选择前20行内的表头'})}<div class="field"><span>预计读取</span><div class="read-count">${Math.max(0,s.rows.length-d.header-1)} 行数据</div></div></div>${(() => { const fa=state.fieldAliases||{}; const chips=Object.entries(fa).flatMap(([k,v])=>(v||[]).map(n=>{const label=(FIELDS.find(x=>x[0]===k)||[])[1]||k;return `<span class="cm-chip"><strong>${esc(n)}</strong> → ${esc(label)}<button type="button" data-cm-del="${esc(k)}|${esc(n)}" aria-label="删除">×</button></span>`;}));return `<details class="custom-map"><summary>自定义字段匹配规则<span class="muted">把来源表里的某个列名认成指定字段，例如「网单编号 → 订单号」</span></summary><div class="cm-body">${chips.length?`<div class="cm-chips">${chips.join('')}</div>`:'<p class="muted">还没有自定义规则。</p>'}<div class="cm-add"><select id="cm-field">${FIELDS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select><input id="cm-names" placeholder="列名，多个用逗号分隔，如：网单编号,外部单号"><button type="button" class="btn secondary small" id="cm-add">添加规则</button></div><small class="muted">添加后，来源表里出现这些列名时会自动映射到该字段，下次导入继续有效。</small></div></details>`; })()}<h3 class="section-label">来源字段对应关系</h3><div class="form-grid">${FIELDS.map(([key,label])=>selectField(label,'map-'+key,[['','不读取 / 未提供'],...headers.map((h,i)=>[String(i),`${String.fromCharCode(65+Math.floor(i/26)-1).replace('@','')}${String.fromCharCode(65+i%26)} · ${h||'空白列'}`])],d.map[key]??'')).join('')}</div><div class="alert warning">“订单商品编号”是订单明细 ID。商品映射请使用“客户商品编码”或商品名称与规格。</div><h3 class="section-label">来源预览（前2行）</h3><div class="table-wrap compact"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${s.rows.slice(d.header+1,d.header+3).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p id="import-error" class="form-error" role="alert"></p></form>`,`<button class="btn secondary" id="skip-import">跳过此文件</button><button class="btn" id="confirm-import">确认导入并匹配</button>`,true);
     const capture=()=>{const el=$('#customer-input')||$('[name=customer]');d.customer=String(el&&el.value||'').trim();FIELDS.forEach(([k])=>d.map[k]=$(`[name="map-${k}"]`).value);};
     $('[name=sheet]').onchange=e=>{capture();d.sheet=Number(e.target.value);d.header=OrderExcel.detectHeader(d.book.sheets[d.sheet].rows);showImportModal(true);};
     $('[name=header]').onchange=e=>{capture();const n=Number(e.target.value);if(!Number.isInteger(n)||n<1||n>Math.min(20,s.rows.length)){toast('请输入有效表头行（1至20）。','warning');e.target.value=d.header+1;return;}d.header=n-1;showImportModal(true);};
     attachCustomerPicker(state.customers.map(c=>c.name));
+    $('#cm-add')?.addEventListener('click', async () => {
+      const field = $('#cm-field').value;
+      const raw = String($('#cm-names').value || '').trim();
+      if (!raw) { toast('请填写要识别的列名。', 'warning'); return; }
+      const names = raw.split(/[,，、;；\s]+/).map(x => x.trim()).filter(Boolean);
+      const list = state.fieldAliases[field] || (state.fieldAliases[field] = []);
+      let added = 0;
+      for (const n of names) { if (!list.some(x => norm(x) === norm(n))) { list.push(n); added++; } }
+      if (!added) { toast('这些列名已经在规则里了。', 'warning'); return; }
+      await save();
+      showImportModal(true);
+      toast(`已添加 ${added} 条匹配规则，已重新识别。`);
+    });
+    $$('[data-cm-del]').forEach(b => b.onclick = async () => {
+      const [field, name] = b.dataset.cmDel.split('|');
+      const list = state.fieldAliases[field] || [];
+      state.fieldAliases[field] = list.filter(x => norm(x) !== norm(name));
+      if (!state.fieldAliases[field].length) delete state.fieldAliases[field];
+      await save();
+      showImportModal(true);
+      toast('已删除该规则。');
+    });
     $('#skip-import').onclick=()=>{pending.shift();closeModal();nextImport();};
     $('#confirm-import').onclick=async()=>{capture();if(!d.customer){$('#import-error').textContent=state.customers.length?'请选择来源客户。':'客户库里还没有客户，请先到「客户库」新增客户，再回来上传订单。';return;}
       if(!state.customers.some(c=>norm(c.name)===norm(d.customer))){$('#import-error').textContent='客户库里没有「'+d.customer+'」，请先到客户库新增，或从下拉里选择已有客户。';return;}if(d.map.productName===''){ $('#import-error').textContent='请至少指定商品名称字段。';return;}if(d.map.sourceSku!==''&&norm(headers[Number(d.map.sourceSku)])===norm('订单商品编号')){$('#import-error').textContent='订单商品编号不能作为稳定商品编码，请改选或留空。';return;}
