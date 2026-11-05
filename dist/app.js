@@ -1108,8 +1108,38 @@
           if (!prod.createdAt) prod.createdAt = get(r, 'createdAt') || new Date().toISOString();
           if (!prod.status) prod.status = '合作中';
         }
+        let qCount = 0, qMiss = 0;
+        const qSheet = (book.sheets || []).find(sh => /报价/.test(String(sh.name || '')) || (sh.rows || []).some(r => (r || []).map(poolNorm).includes('客户') && (r || []).some(c => /报价/.test(String(c || '')))));
+        if (qSheet) {
+          const qRows = qSheet.rows || [];
+          let qh = qRows.findIndex(r => (r || []).map(poolNorm).includes('客户') && (r || []).some(c => /报价/.test(String(c || ''))));
+          if (qh < 0) qh = 0;
+          const h2 = qRows[qh] || [];
+          const idxOf = key => h2.findIndex(c => { const t = poolNorm(c); return !!t && t.includes(poolNorm(key)); });
+          const iName = idxOf('品名'), iSku = idxOf('内部编码'), iSupSku = idxOf('供应商编码'), iSpec = idxOf('内容物配置'), iCust = idxOf('客户'), iPrice = idxOf('报价');
+          for (let i2 = qh + 1; i2 < qRows.length; i2++) {
+            const r2 = qRows[i2] || [];
+            const cust = String(iCust >= 0 ? (r2[iCust] == null ? '' : r2[iCust]) : '').trim();
+            if (!cust) continue;
+            const pv = String(iPrice >= 0 ? (r2[iPrice] == null ? '' : r2[iPrice]) : '').replace(/[^0-9.\-]/g, '');
+            const price = pv === '' ? null : Number(pv);
+            let prod = iSku >= 0 ? state.products.find(p => norm(p.internalSku) === norm(r2[iSku])) : null;
+            if (!prod && iSupSku >= 0) prod = state.products.find(p => norm(p.supplierSku) === norm(r2[iSupSku]));
+            if (!prod && iName >= 0) {
+              const nm = norm(r2[iName]), sp = iSpec >= 0 ? norm(r2[iSpec]) : '';
+              prod = state.products.find(p => norm(p.name) === nm && (!sp || norm(p.spec) === sp));
+            }
+            if (!prod) { qMiss++; continue; }
+            if (!Array.isArray(prod.quotes)) prod.quotes = [];
+            const hit = prod.quotes.find(q => norm(q.customer) === norm(cust));
+            const val = price == null || !Number.isFinite(price) ? 0 : price;
+            if (hit) hit.price = val; else prod.quotes.push({ customer: cust, price: val });
+            prod.quotesInit = true;
+            qCount++;
+          }
+        }
         await save(); closeModal(); render();
-        toast(`商品表导入完成：新增 ${added} 个商品、更新 ${updated} 个${supAdded ? `，新建 ${supAdded} 个供应商` : ''}。`);
+        toast(`商品表导入完成：新增 ${added} 个商品、更新 ${updated} 个${supAdded ? `，新建 ${supAdded} 个供应商` : ''}${qCount ? `；已还原 ${qCount} 条客户报价` : ''}${qMiss ? `（${qMiss} 条报价没找到对应商品）` : ''}。`);
       };
     });
   }
