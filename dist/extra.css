@@ -270,3 +270,7 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .cm-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .cm-add select{max-width:170px}
 .cm-add input{flex:1;min-width:220px}
+
+/* 历史批次提示 */
+.batch-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+.batch-hint button{margin-left:auto}
