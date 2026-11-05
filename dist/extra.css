@@ -257,7 +257,3 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .combo-item{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:8px;font-size:13px;color:#3f545e}
 .combo-item:hover,.combo-item.active{background:#eaf6f3;color:#0b5f57}
 .combo-empty{padding:10px;color:#8b979f;font-size:12px}
-
-/* 空表格仍显示表头 */
-.empty-row td{padding:0!important;background:#fff}
-.empty-row .empty-state{padding:48px 20px}
