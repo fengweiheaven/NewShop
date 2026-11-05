@@ -257,3 +257,16 @@ body.auth-locked .shell{filter:blur(3px);pointer-events:none}
 .combo-item{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:8px;font-size:13px;color:#3f545e}
 .combo-item:hover,.combo-item.active{background:#eaf6f3;color:#0b5f57}
 .combo-empty{padding:10px;color:#8b979f;font-size:12px}
+
+/* 自定义字段匹配规则 */
+.custom-map{border:1px solid #e9edf0;border-radius:10px;background:#fbfcfd;padding:10px 14px;margin:6px 0 14px}
+.custom-map summary{cursor:pointer;font-weight:600;color:#3d525d;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.custom-map summary .muted{font-weight:400;font-size:11px}
+.cm-body{padding-top:10px}
+.cm-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.cm-chip{display:inline-flex;align-items:center;gap:6px;background:#eaf6f3;color:#0b5f57;border:1px solid #cfe9e2;border-radius:999px;padding:4px 10px;font-size:11px}
+.cm-chip button{border:0;background:transparent;color:#0b5f57;font-size:13px;line-height:1;padding:0 0 0 2px;cursor:pointer;opacity:.7}
+.cm-chip button:hover{opacity:1}
+.cm-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cm-add select{max-width:170px}
+.cm-add input{flex:1;min-width:220px}
