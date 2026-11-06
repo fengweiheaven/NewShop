@@ -2107,7 +2107,7 @@ if (filled) await save();
     }
     const blocks = [...groups.entries()].map(([name, rows]) => {
       const filled = rows.filter(r => String(r.o.trackingNo || '').trim()).length;
-      return `<div class="ship-group"><div class="ship-group-head"><strong>${esc(name)}</strong><span class="muted">${rows.length} 条 · 已回填 ${filled} · 待回填 ${rows.length - filled}</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>商品</th><th>供应商</th><th>收件人</th><th>电话</th><th>地址</th><th>快递单号</th></tr></thead><tbody>${rows.slice(0, 200).map(({ o, stt }) => `<tr><td class="mono">${esc(o.orderNo)}</td><td class="product-cell">${esc(stt.product ? stt.product.name : o.productName)}</td><td>${esc(stt.product ? (sById(stt.product.supplierId)?.name || '—') : '—')}</td><td>${esc(o.recipient || '—')}</td><td class="mono">${esc(o.phone || '—')}</td><td><span class="addr" title="${esc(o.address || '')}">${esc(shortText(o.address, 12) || '—')}</span></td><td class="mono">${o.trackingNo ? esc(o.trackingNo) : '<span class="muted">待回填</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
+      return `<div class="ship-group"><div class="ship-group-head"><span class="ship-group-title"><strong>${esc(name)}</strong><span class="muted">${rows.length} 条 · 已回填 ${filled} · 待回填 ${rows.length - filled}</span></span><button type="button" class="btn ghost small" data-export-customer="${esc(name)}" title="只导出「${esc(name)}」这一家：原表列结构不变，快递单号已回填">${icon('download')} 导出该客户</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>商品</th><th>供应商</th><th>收件人</th><th>电话</th><th>地址</th><th>快递单号</th></tr></thead><tbody>${rows.slice(0, 200).map(({ o, stt }) => `<tr><td class="mono">${esc(o.orderNo)}</td><td class="product-cell">${esc(stt.product ? stt.product.name : o.productName)}</td><td>${esc(stt.product ? (sById(stt.product.supplierId)?.name || '—') : '—')}</td><td>${esc(o.recipient || '—')}</td><td class="mono">${esc(o.phone || '—')}</td><td><span class="addr" title="${esc(o.address || '')}">${esc(shortText(o.address, 12) || '—')}</span></td><td class="mono">${o.trackingNo ? esc(o.trackingNo) : '<span class="muted">待回填</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
     }).join('');
     return `<section class="card"><div class="card-header"><div><h2>待回填订单 <span class="count">${list.length}</span></h2><p class="muted">按订单来源（客户）分组，只列出当前「导出日期」筛选范围内已导出的订单。</p></div></div><div class="card-body">${blocks}</div></section>`;
   }
@@ -2123,8 +2123,8 @@ if (filled) await save();
         <div class="table-wrap"><table class="data-table"><thead><tr><th>收货人</th><th>电话</th><th>快递单号</th><th>商品</th><th>订单号</th><th>匹配依据</th></tr></thead><tbody>${shipmentPreviewRows().map(m => `<tr><td>${esc(m.recipient || '—')}</td><td class="mono">${esc(m.phone || '—')}</td><td class="mono">${esc(m.tracking || '—')}</td><td class="product-cell">${esc(String(m.product || '').slice(0, 30) || '—')}</td><td class="mono">${m.orderNo ? esc(m.orderNo) : '<span class="muted">未匹配</span>'}</td><td>${m.how ? esc(m.how) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${shipmentPreviewRows().length} 行，下载包含全部 ${st.total} 行。</span></div></section>` : ''}${shipmentPendingSection()}`;
   }
-  function originalSheetRows(batchId) {
-    const rows = shipmentOrders().filter(o => o.batchId === batchId);
+  function originalSheetRows(batchId, pool) {
+    const rows = (Array.isArray(pool) ? pool : shipmentOrders()).filter(o => o.batchId === batchId);
     if (!rows.length) return null;
     const batch = state.batches.find(b => b.id === batchId) || {};
     const first = rows.find(o => o.raw && Object.keys(o.raw).length) || null;
@@ -2154,18 +2154,21 @@ if (filled) await save();
       rows: data
     };
   }
-  async function exportCustomerOriginals() {
-    const list = shipmentOrders();
-    if (!list.length) { toast('当前筛选范围内没有已导出的订单。', 'warning'); return; }
+  async function exportCustomerOriginals(onlyCustomer) {
+    const key = String(onlyCustomer || '').trim();
+    const all = shipmentOrders();
+    const list = key ? all.filter(o => (String(o.customer || '').trim() || '未命名客户') === key) : all;
+    if (!list.length) { toast(key ? `「${key}」在当前「导出日期」范围内没有可导出的订单。` : '当前筛选范围内没有已导出的订单。', 'warning'); return; }
     const batchIds = [...new Set(list.map(o => o.batchId))];
-    const sheets = batchIds.map(id => originalSheetRows(id)).filter(Boolean);
+    const sheets = batchIds.map(id => originalSheetRows(id, list)).filter(Boolean);
     if (!sheets.length) { toast('没有可回填的客户原表。', 'warning'); return; }
     const filled = list.filter(o => String(o.trackingNo || '').trim()).length;
     const MIME2 = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     if (sheets.length === 1) {
       const sh = sheets[0];
       const bytes = await OrderExcel.buildWorkbook({ headers: sh.headers, rows: sh.rows, sheetName: sh.sheetName });
-      OrderExcel.downloadBlob(new Blob([bytes], { type: MIME2 }), `${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`);
+      const base = key ? safeName(key) : safeName(String(sh.name).replace(/\.[^.]+$/, ''));
+      OrderExcel.downloadBlob(new Blob([bytes], { type: MIME2 }), key ? `${base}_回填_${stamp()}.xlsx` : `${base}_回填.xlsx`);
     } else {
       const zip = new JSZip();
       let i = 0;
@@ -2175,9 +2178,9 @@ if (filled) await save();
         zip.file(`${String(i).padStart(2, '0')}_${safeName(String(sh.name).replace(/\.[^.]+$/, ''))}_回填.xlsx`, bytes);
       }
       const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-      OrderExcel.downloadBlob(blob, `客户原表回填_${stamp()}.zip`);
+      OrderExcel.downloadBlob(blob, key ? `${safeName(key)}_回填_${stamp()}.zip` : `客户原表回填_${stamp()}.zip`);
     }
-    toast(`已导出 ${sheets.length} 张客户原表，其中 ${filled} 条带快递单号。`);
+    toast(key ? `已导出「${key}」的 ${sheets.length} 张原表，其中 ${filled} 条带快递单号。` : `已导出 ${sheets.length} 张客户原表，其中 ${filled} 条带快递单号。`);
   }
   async function exportShipmentByCustomer() {
     const rows = shipmentOrders().filter(o => String(o.trackingNo || '').trim());
@@ -2238,6 +2241,7 @@ if (filled) await save();
     $('#shipment-download')?.addEventListener('click', () => guardAsync(exportShipment));
     $('#export-customer-ship')?.addEventListener('click',()=>guardAsync(exportShipmentByCustomer));
     $('#export-origin-ship')?.addEventListener('click',()=>guardAsync(exportCustomerOriginals));
+    $$('[data-export-customer]').forEach(b=>{b.onclick=()=>guardAsync(()=>exportCustomerOriginals(b.dataset.exportCustomer));});
     $('#shipment-date')?.addEventListener('change',e=>{shipmentDate=e.target.value;render();});
     $('#shipment-reset')?.addEventListener('click', () => { shipment = null; render(); });
     $('#shipment-remap')?.addEventListener('click', () => { toast('重新上传同一份表即可重选列。', 'warning'); $('#shipment-file').click(); });
