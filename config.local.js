@@ -1,4 +1,3 @@
-/* 本地私有配置：含 Publishable Key，已被 .gitignore 忽略，不要提交。 */
 window.ORDERFLOW_CONFIG = Object.assign({}, window.ORDERFLOW_CONFIG, {
   mode: 'cloudbase',
   envId: 'orderflow-prod-d2g6wsnki20b1a559',

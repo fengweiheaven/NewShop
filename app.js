@@ -68,6 +68,10 @@
   ].map(t => Object.assign({}, t, { columns: t.columns.map(c => ({ header: c[0], field: c[1], fallback: c[2] || '', required: !!c[3] })) }));
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
   let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
+  // 云端读取状态：ok=false 表示这次没读到（未登录 / 网络 / 权限），界面必须拒绝写入，
+  // 更不能拿空白工作区去覆盖线上数据。
+  let cloudBoot = { ok: false, exists: false, error: '' };
+  let localMigrateInfo = null;
   const seed = () => ({version:1,suppliers:[copy(OrderSeed.supplier)],products:copy(OrderSeed.products),batches:[],activeBatchIds:[],orders:[],customers:[],recharges:[],profiles:{},fieldAliases:{},unified:null,history:[]});
   const pById = id => state.products.find(p=>p.id===id);
   const sById = id => state.suppliers.find(s=>s.id===id);
@@ -117,9 +121,17 @@
     try {
       const loaded = await OrderStore.load();
       state = loaded ? loaded.state : null;
-    } catch(e) { storageFailure = true; console.error('[OrderFlow] 读取工作区失败', e); }
+      const info = (OrderStore.lastLoad || {});
+      cloudBoot = { ok: !!info.ok, exists: !!info.exists, error: '' };
+    } catch(e) {
+      storageFailure = true;
+      const info = (OrderStore.lastLoad || {});
+      cloudBoot = { ok: false, exists: false, error: (e && e.message) || '读取失败' };
+      console.error('[OrderFlow] 读取工作区失败', e);
+    }
     if(!state || state.version!==1) state=seed();
     try{migrateScope(state);}catch(e){console.error("[OrderFlow] 数据迁移失败",e);}
+    if(OrderStore.mode==='cloudbase' && cloudBoot.ok && !cloudBoot.exists) localMigrateInfo = await readLocalMigrateInfo();
     bindShell();
     try { startIdleGuard(); } catch (e) { console.warn('[OrderFlow] 闲置保护启动失败', e); }
     try{render();}catch(e){
@@ -128,7 +140,7 @@
       if(box){box.innerHTML="";const note=document.createElement("div");note.className="alert warning";note.style.margin="24px";note.textContent="页面初始化失败："+(e&&e.message?e.message:e)+"。请在浏览器控制台查看详细错误，或用右上角「恢复备份」还原数据。";box.append(note);}
       toast("页面初始化失败，请查看控制台或恢复备份。","warning");
     }
-    if(storageFailure)toast('浏览器未允许本地存储，请在关闭前导出备份。','warning');
+    if(storageFailure && OrderStore.mode!=='cloudbase')toast('浏览器未允许本地存储，请在关闭前导出备份。','warning');
   }
   function mergeOnlyAdditions(remote, local) {
     if (!remote || !Array.isArray(remote.orders) || !Array.isArray(local.orders)) return null;
@@ -154,6 +166,12 @@
     try { await OrderStore.save(copy(state)); }
     catch(e){
       const msg = e && e.message ? e.message : '保存失败，请立即备份数据。';
+      if (e && e.notReady) {
+        window.__saveFailedAt = Date.now();
+        setTimeout(() => openModal('云端数据未就绪', `<p><strong>本次修改没有写入云端。</strong></p><p class="muted">${esc(msg)}</p><p class="muted">为避免覆盖线上正式数据，系统已暂停写入。请先刷新页面或重新登录。</p>`, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="notready-reload">刷新页面</button>`, true), 0);
+        setTimeout(() => { const b = $('#notready-reload'); if (b) b.onclick = () => location.reload(); }, 0);
+        return;
+      }
       if ((e && e.conflict) || /已被他人修改/.test(msg)) {
         try {
           const remote = await OrderStore.load();
@@ -225,9 +243,9 @@
   }
   function bindShell() {
     $$('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;query='';page=1;filter='all';render();});
-    $('#backup-btn').onclick=()=>{const cloud=OrderStore.mode==='cloudbase';OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_快照_${stamp()}.json`);toast(cloud?'快照已下载（当前云端工作区的完整拷贝）。':'备份已下载，包含本机商品映射和订单数据。');};
-    $('#restore-btn').onclick=()=>guardAsync(openRestoreDialog);
-    $('#restore-input').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>40*1024*1024)throw Error('备份超过40MB。');const v=JSON.parse(await f.text());validateBackup(v);const cloud=OrderStore.mode==='cloudbase';const tip=cloud?'恢复后会覆盖云端工作区，所有同事看到的数据都会被替换为这份快照。建议先点“备份数据”留一份当前数据。':'恢复后将替换当前浏览器的数据。建议先点击右上角“备份数据”。';confirmDialog('恢复数据备份',tip,async()=>{OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_恢复前快照_${stamp()}.json`);state=v;invalidate();await save();render();toast('已恢复备份；恢复前的数据也已自动下载一份。');});}catch(err){toast(err.message,'warning');}e.target.value='';};
+    $('#backup-btn').onclick=()=>{const cloud=OrderStore.mode==='cloudbase';if(cloud&&!cloudBoot.ok){toast('云端数据没有读取成功，现在导出只是空白工作区，已取消。','warning');return;}OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_快照_${stamp()}.json`);toast(cloud?'快照已下载（当前云端工作区的完整拷贝）。':'备份已下载，包含本机商品映射和订单数据。');};
+    $('#restore-btn').onclick=()=>{if(OrderStore.mode==='cloudbase'&&!cloudBoot.ok){toast('云端数据没有读取成功，先刷新或重新登录后再恢复。','warning');return;}guardAsync(openRestoreDialog);};
+    $('#restore-input').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(OrderStore.mode==='cloudbase'&&!cloudBoot.ok)throw Error('云端数据没有读取成功，先刷新或重新登录后再恢复备份。');if(f.size>40*1024*1024)throw Error('备份超过40MB。');const v=JSON.parse(await f.text());validateBackup(v);const cloud=OrderStore.mode==='cloudbase';const tip=cloud?'恢复后会覆盖云端工作区，所有同事看到的数据都会被替换为这份快照。建议先点“备份数据”留一份当前数据。':'恢复后将替换当前浏览器的数据。建议先点击右上角“备份数据”。';confirmDialog('恢复数据备份',tip,async()=>{OrderExcel.downloadBlob(new Blob([JSON.stringify({...state,backupAt:new Date().toISOString()},null,2)],{type:'application/json'}),`丰涵代发_恢复前快照_${stamp()}.json`);state=v;invalidate();await save();render();toast('已恢复备份；恢复前的数据也已自动下载一份。');});}catch(err){toast(err.message,'warning');}e.target.value='';};
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if(e.key==='Tab'&&$('#modal-root .modal')){const a=$$('button,input,select,textarea,[tabindex="0"]',$('#modal-root')).filter(x=>!x.disabled);if(!a.length)return;const first=a[0],last=a[a.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
   }
   function validateBackup(v){
@@ -342,12 +360,20 @@
   const summary=()=>activeRows().reduce((a,r)=>{const s=status(r);a[s.key]=(a[s.key]||0)+1;a.total++;if(s.key!=='excluded')a.quantity+=Number(r.quantity)||0;return a;},{total:0,ready:0,unmatched:0,invalid:0,duplicate:0,excluded:0,quantity:0});
   function badge(s){return `<span class="pill ${s.type}" title="${esc(s.issues?.join('；')||'')}">${s.type==='success'?icon('check'):''}${esc(s.label)}</span>`;}
     function stats(){const s=summary();return `<div class="stats-grid">${[['file','已采集订单',s.total,`本次 ${state.activeBatchIds.length} 个批次 · 历史 ${state.batches.length} 个`,'blue'],['check','匹配完成',s.ready,s.total?`${Math.round(s.ready/s.total*100)}% 的明细已就绪`:'导入订单后自动检查','green'],['clock','待处理',s.unmatched+s.invalid+s.duplicate,'映射与字段异常','amber'],['box','供应商库',state.products.length,`${state.suppliers.length} 家供应商`,'purple']].map(([ic,l,v,n,c])=>`<article class="stat-card"><div class="stat-icon ${c}">${icon(ic)}</div><div><div class="stat-label">${l}</div><div class="stat-value">${v}<span>条</span></div><div class="stat-note">${n}</div></div></article>`).join('')}</div>`;}
+  // 只在“云端读取失败”时给出阻断提示；不再主动弹“把本机数据导入云端”，
+  // 迁移改为「恢复数据」里的显式操作，避免把错误的本地数据盖到线上。
+  function cloudStatusBanner() {
+    if (OrderStore.mode !== 'cloudbase') return '';
+    if (cloudBoot.ok) return '';
+    return `<div class="alert warning cloud-not-ready">${icon('shield')}<span><strong>云端数据没有读取成功</strong>（${esc(cloudBoot.error || '未知原因')}）。当前显示的是空白工作区，请不要录入或导入数据，以免覆盖线上数据；先刷新页面或重新登录。</span><button class="btn secondary small" id="cloud-retry">重新读取</button></div>`;
+  }
   function render(){
     const titles={suppliers:['供应商库','维护供应商、标准商品与客户商品别名'],import:['订单采集与匹配','把不同客户的订单，整理成可交付的数据'],export:['供应商格式','一家供应商一套格式，匹配后直接导出'],customers:['客户库','维护给我们下订单的客户'],shipment:['运单回填','把快递单号表的订单号补上'],recon:['对账','按客户汇总订单、商品与金额']};
     $('#page-title').textContent=titles[view][0];$('#page-subtitle').textContent=titles[view][1];
     $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
-    const localBanner = (OrderStore.mode==='cloudbase' && state.orders.length===0 && state.customers.length===0 && !window.__localImportDone) ? `<div class="alert warning import-local-bar"><span>检测到这是空的云端工作区。如果你之前在这台电脑上用过单机版，可以把本机数据导入云端。</span><button class="btn secondary small" id="import-local">导入本机数据</button></div>` : '';
+    const localBanner = cloudStatusBanner();
     $('#content').innerHTML=localBanner+((view==='import'||view==='export')?renderImport():view==='suppliers'?renderLibrary():view==='customers'?renderCustomers():view==='shipment'?renderShipment():renderRecon());
+    const cloudRetry = $('#cloud-retry'); if (cloudRetry) cloudRetry.onclick = () => location.reload();
     $$('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;query='';page=1;render();});
     bindView();
     if (view === 'recon') maybeShowBalanceNotice();
@@ -367,6 +393,53 @@
     draw();
   }
   const ROLE_OPTIONS = [['admin', '管理员'], ['clerk', '客服'], ['warehouse', '仓库'], ['finance', '财务']];
+  // 本机单机版数据的规模，只用于展示；读不到就返回 null，不当成“空数据”。
+  async function readLocalMigrateInfo() {
+    try {
+      const local = await OrderStore.readLocal();
+      const st = local && local.state;
+      if (!st) return null;
+      const orders = Array.isArray(st.orders) ? st.orders.length : 0;
+      if (!orders) return null;
+      return {
+        orders,
+        batches: Array.isArray(st.batches) ? st.batches.length : 0,
+        customers: Array.isArray(st.customers) ? st.customers.length : 0,
+        suppliers: Array.isArray(st.suppliers) ? st.suppliers.length : 0,
+        products: Array.isArray(st.products) ? st.products.length : 0
+      };
+    } catch (_) { return null; }
+  }
+  async function migrateLocalModal() {
+    const info = localMigrateInfo || await readLocalMigrateInfo();
+    if (!info) { toast('这台电脑上没有可迁移的单机版数据。', 'warning'); return; }
+    openModal('从本机数据迁移（覆盖云端）', `
+      <div class="alert warning">${icon('shield')}<span><strong>这一步会用本机浏览器里的数据整份替换云端工作区</strong>，不会合并、也不会保留云端现有内容。只要有一点点不确定，就先不要继续。</span></div>
+      <div class="stats-grid compact">${[['订单明细', info.orders, '条'], ['批次', info.batches, '个'], ['客户', info.customers, '个'], ['供应商', info.suppliers, '家'], ['商品', info.products, '个']].map(([l, v, u]) => `<article class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}<span>${u}</span></div></article>`).join('')}</div>
+      <p class="muted">如果这份本机数据是旧测试数据、或者同事已经在云端录入了正式数据，请点「取消」，改用「备份数据 / 恢复备份」按需处理。</p>
+      <label class="checkbox-row"><input type="checkbox" id="migrate-confirm"><span>我确认这份本机数据是正确的最新数据，并同意覆盖云端工作区</span></label>
+    `, `<button class="btn secondary" data-cancel>取消</button><button class="btn danger" id="migrate-run" disabled>覆盖云端并迁移</button>`, true);
+    const cb = $('#migrate-confirm'), run = $('#migrate-run');
+    if (cb && run) cb.onchange = () => { run.disabled = !cb.checked; };
+    if (run) run.onclick = () => guardAsync(async () => {
+      run.disabled = true; run.textContent = '迁移中…';
+      // 写之前再确认一次云端仍然是空的：期间有人录入过就立刻停手。
+      let fresh = null;
+      try { fresh = await OrderStore.load(); } catch (e) { closeModal(); toast('读不到云端数据，已取消迁移：' + ((e && e.message) || '请刷新后重试。'), 'warning'); return; }
+      const remote = fresh && fresh.state;
+      const remoteBusy = !remote ? false : ['orders', 'batches', 'customers'].some(k => Array.isArray(remote[k]) && remote[k].length);
+      if (remoteBusy) { closeModal(); toast('云端工作区已经有数据，已停止迁移，避免覆盖正式数据。', 'warning'); return; }
+      const local = await OrderStore.readLocal();
+      if (!local || !local.state) { closeModal(); toast('读取本机数据失败，已取消迁移。', 'warning'); return; }
+      state = local.state;
+      try { migrateScope(state); } catch (e) { console.warn('[OrderFlow] 迁移数据补全失败', e); }
+      window.__localImportDone = true;
+      try { await OrderStore.save(copy(state)); }
+      catch (e) { closeModal(); toast('写入云端失败：' + ((e && e.message) || '请刷新后重试。'), 'warning'); return; }
+      closeModal(); render();
+      toast(`已把本机数据写入云端（${(state.orders || []).length} 条订单）。`);
+    });
+  }
   async function openRestoreDialog() {
     let snaps = [];
     try { snaps = OrderStore.snapshots ? await OrderStore.snapshots() : []; } catch (e) { snaps = []; }
@@ -376,6 +449,17 @@
       ${rows ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>保存时间</th><th>订单</th><th>批次</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="alert info">本机还没有自动快照。</div>'}
     `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn secondary" id="restore-from-file">选择备份文件…</button>`, true);
     $('#restore-from-file').onclick = () => $('#restore-input').click();
+    if (OrderStore.mode === 'cloudbase') {
+      const box = document.createElement('div');
+      box.className = 'alert warning';
+      box.style.marginTop = '14px';
+      box.innerHTML = `<div>${icon('shield')}<span><strong>从本机单机版数据迁移</strong><small>用本机数据整份覆盖云端工作区，只在确实要把旧电脑的数据搬到云端时使用。</small></span></div>`
+        + (localMigrateInfo ? `<button type="button" class="btn danger small" id="migrate-local">查看并迁移（本机 ${localMigrateInfo.orders} 条订单）</button>` : '<small class="muted">这台电脑上没有可用的单机版数据。</small>');
+      const body = $('#modal-root .modal-body');
+      if (body) body.append(box);
+      const mBtn = box.querySelector('#migrate-local');
+      if (mBtn) mBtn.onclick = () => migrateLocalModal();
+    }
     $('[data-snap]').forEach(b => b.onclick = async () => {
       const snap = await OrderStore.restoreSnapshot(b.dataset.snap);
       if (!snap) { toast('快照读取失败。', 'warning'); return; }
@@ -1511,14 +1595,6 @@
     $('#catalog-file')?.addEventListener('change',e=>catalogImport(e.target.files[0]));
     $$('[data-template]').forEach(b=>b.onclick=()=>templateModal(b.dataset.template));
     $$('[data-apply-preset]').forEach(b=>b.onclick=async()=>{const sup=sById(b.dataset.applyPreset);const tpl=builtinTemplateFor(sup.name);if(!tpl)return;sup.template=copy(tpl);await save();render();toast(`已套用「${tpl.name}」预设格式。`);});
-    $('#import-local')?.addEventListener('click', () => confirmDialog('导入本机数据', '将把本机浏览器里保存的工作区写入云端，覆盖当前云端空数据。继续？', async () => {
-      const local = await OrderStore.readLocal();
-      if (!local || !local.state) { toast('本机没有找到单机版数据。', 'warning'); return; }
-      state = local.state;
-      window.__localImportDone = true;
-      try { await OrderStore.save(copy(state)); } catch (e) { toast(e && e.message ? e.message : '导入失败。', 'warning'); return; }
-      render(); toast('本机数据已导入云端。');
-    }));
     $('#load-all-batches')?.addEventListener('click', async () => {
       state.activeBatchIds = (state.batches || []).map(b => b.id);
       await save(); render();
@@ -1534,6 +1610,7 @@
   function bindOrderActions(){$$('[data-del-order]').forEach(b=>b.onclick=()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{await deleteOrders([b.dataset.delOrder],'已删除 1 条明细。');}));$$('[data-edit-order]').forEach(b=>b.onclick=()=>orderModal(b.dataset.editOrder));$$('[data-page]').forEach(b=>b.onclick=()=>{page=Number(b.dataset.page);$('#orders-table').innerHTML=orderTable();bindOrderActions();});}
   function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-quote-product]').forEach(b=>b.onclick=()=>quoteModal(b.dataset.quoteProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
   async function queueFiles(files){if(!files?.length)return;
+  if(OrderStore.mode==='cloudbase'&&!cloudBoot.ok){toast('云端数据没有读取成功，先刷新页面再导入，以免数据落到空白工作区。','warning');return;}
   if (OrderStore.mode === 'cloudbase') {
     try {
       const fresh = await OrderStore.load();

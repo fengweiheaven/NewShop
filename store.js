@@ -12,6 +12,9 @@
 
   let dbPromise = null;
   let lastRev = 0;
+  // 最近一次读取的结果。只有在云端成功读到（哪怕文档不存在）才允许写回，
+  // 避免读取失败后用种子/空数据把线上工作区整份覆盖。
+  let lastLoad = { ok: false, source: '', exists: false, at: '' };
 
   function openDb() {
     if (dbPromise) return dbPromise;
@@ -31,6 +34,7 @@
       tx.onsuccess = () => resolve(tx.result);
       tx.onerror = () => reject(tx.error);
     });
+    lastLoad = { ok: true, source: 'local', exists: !!value, at: new Date().toISOString() };
     return value ? { state: value, rev: 0, source: 'local' } : null;
   }
 
@@ -110,14 +114,23 @@
 
   async function cloudLoad() {
     const { data, error } = await sql().from(CFG.collection).select('*').eq('id', CFG.docId).limit(1);
-    if (error) throw new Error(error.message || '读取云端数据失败。');
+    if (error) {
+      lastLoad = { ok: false, source: 'cloudbase', exists: false, at: new Date().toISOString() };
+      throw new Error(error.message || '读取云端数据失败。');
+    }
     const row = Array.isArray(data) ? data[0] : null;
-    if (!row) return null;
+    lastLoad = { ok: true, source: 'cloudbase', exists: !!row, at: new Date().toISOString() };
+    if (!row) { lastRev = 0; return null; }
     lastRev = Number(row.rev) || 0;
     return { state: row.data, rev: lastRev, source: 'cloudbase' };
   }
 
   async function cloudSave(state) {
+    if (!lastLoad.ok) {
+      const err = new Error('云端数据没有成功读取，已暂停写入，以免覆盖线上数据。请刷新页面或重新登录后再操作。');
+      err.notReady = true;
+      throw err;
+    }
     const db = sql();
     const payload = {
       data: state,
@@ -134,6 +147,7 @@
       if (!data || !data.length) { const err = new Error('数据已被他人修改，请刷新后重试。'); err.conflict = true; throw err; }
     }
     lastRev += 1;
+    lastLoad = { ok: true, source: 'cloudbase', exists: true, at: new Date().toISOString() };
     try {
       await db.from('audit_logs').insert({ uid: uid(), action: 'save', detail: { orders: (state.orders || []).length, rev: lastRev } });
     } catch (_) { }
@@ -142,6 +156,7 @@
 
   const OrderStore = {
     get mode() { return CFG.mode; },
+    get lastLoad() { return Object.assign({}, lastLoad); },
     get envId() { return CFG.envId; },
     get rev() { return lastRev; },
     async load() { return CFG.mode === 'cloudbase' ? cloudLoad() : localLoad(); },
