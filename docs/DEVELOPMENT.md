@@ -419,11 +419,13 @@ python -m http.server 8765 --directory dist
 
 导出页进入即调用 `exportGroups()`：
 
-1. 取 `activeRows()`（本次勾选的批次）中 `status(r).key === 'ready'` 且能定位唯一商品的明细。
+1. 取 `exportScopedRows()`（本次勾选的批次，再按导出弹窗顶部的「导出日期」筛选）中 `status(r).key === 'ready'` 且能定位唯一商品的明细。
 2. 用 `exportRow(order, product)` 把订单映射成导出取值对象：`sourceProductName` 保留客户原名称，`productName` 换成标准商品名，并补 `internalSku / spec / unit / supplierId / supplierName / supplierSku`，数量与单价转数值。
 3. 按 `product.supplierId` 分桶，一家供应商一组。
 
 因此导出总是基于当前工作区的实时匹配结果，不再维护快照，也不会出现「改了订单但导出的是旧数据」。未匹配的明细不进入导出，页面用 `pendingExportCount()` 提示还有多少条待处理。
+
+> **导出日期范围**：「按供应商导出」弹窗顶部有独立的「导出日期」下拉（`exportDate`，与订单列表的 `dateFilter` 互不影响），默认**今天**，可选 全部 / 今天 / 昨天 / 本周 / 上周 / 本月 / 上月 / 逐个自然日。判定规则 `inExportDate(order)`：订单的**导入日期**或**下单时间**命中该范围即可，和订单列表的日期筛选口径一致。单家导出、批量 ZIP、未匹配提示（`confirmExportIssues`）都跟随这个范围；切换后弹窗原地重绘。
 
 导出顺序与列名完全由该供应商的格式决定，不存在应用内置的「统一 20 列」。来源缺少单价时保留空白，本版不计算销售金额、采购金额、利润或账户余额。供应商预览最多 10 行，完整文件包含该组全部明细。
 
