@@ -67,7 +67,7 @@
     { name: '和世嘉', sheetName: 'sheet1', columns: [['<必填>订单号', 'orderNo', '', true], ['下单时间', 'date'], ['付款时间', 'paidAt'], ['备注', 'remark'], ['买家留言', 'buyerMessage'], ['运费', 'freight'], ['<必填>实付总额', 'paidAmount', '', true], ['<必填>收货人', 'recipient', '', true], ['手机', 'phone'], ['<必填>地址', 'address', '', true], ['快递', 'carrier'], ['邮编', 'postcode'], ['货到付款', 'cod'], ['代收金额', 'codAmount'], ['<必填>商品编码', 'supplierSku', '', true], ['商品名称', 'productName'], ['规格名称', 'spec'], ['数量', 'quantity'], ['<必填>单价', 'unitPrice', '', true], ['<必填>实付', 'amount', '', true]] }
   ].map(t => Object.assign({}, t, { columns: t.columns.map(c => ({ header: c[0], field: c[1], fallback: c[2] || '', required: !!c[3] })) }));
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
-  let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
+  let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', exportDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
   // 云端读取状态：ok=false 表示这次没读到（未登录 / 网络 / 权限），界面必须拒绝写入，
   // 更不能拿空白工作区去覆盖线上数据。
   let cloudBoot = { ok: false, exists: false, error: '' };
@@ -383,10 +383,17 @@
     $$('[data-export-group]').forEach(b => b.onclick = () => { selectedExport = b.dataset.exportGroup; refresh(); });
     $('#export-current')?.addEventListener('click', () => guardAsync(() => exportOne(exportGroups().find(g => g.supplier.id === selectedExport))));
     $('#format-manager-2')?.addEventListener('click', openFormatManager);
+    $('#export-date')?.addEventListener('change', e => { exportDate = e.target.value; refresh(); });
   }
   function openExportModal() {
     const draw = () => {
       openModal('按供应商导出', renderFormatSection({ compact: true }), `<button class="btn secondary" id="modal-manage-format">供应商格式管理</button><button class="btn secondary" id="modal-batch-export">批量导出 ZIP</button><button class="btn" data-cancel>关闭</button>`, true);
+      const body = $('#modal-root .modal-body');
+      if (body) {
+        const bar = document.createElement('div');
+        bar.innerHTML = exportDateBar();
+        body.insertBefore(bar.firstElementChild, body.firstElementChild);
+      }
       bindExportControls(draw);
       $('#modal-batch-export')?.addEventListener('click', () => guardAsync(exportAll));
       $('#modal-manage-format')?.addEventListener('click', () => { openFormatManager(); });
@@ -1693,9 +1700,17 @@
       handled: status(order).key === 'ready' ? '是' : '否'
     };
   }
+  // 导出范围：按「导出日期」筛选本次批次里的明细（上传日期或下单日期命中即可）。
+  function inExportDate(o) {
+    if (!exportDate || exportDate === 'all') return true;
+    return inDateFilter(orderImportDate(o), exportDate) || inDateFilter(orderSheetDate(o), exportDate);
+  }
+  function exportScopedRows() {
+    return activeRows().filter(inExportDate);
+  }
   function exportGroups() {
     const buckets = new Map();
-    for (const order of activeRows()) {
+    for (const order of exportScopedRows()) {
       const st = status(order);
       if (st.key !== 'ready' || !st.product) continue;
       const id = st.product.supplierId;
@@ -1705,7 +1720,20 @@
     return state.suppliers.map(s => ({ supplier: s, rows: buckets.get(s.id) || [] })).filter(g => g.rows.length);
   }
   function pendingExportCount() {
-    return activeRows().filter(r => { const k = status(r).key; return k !== 'ready' && k !== 'excluded'; }).length;
+    return exportScopedRows().filter(r => { const k = status(r).key; return k !== 'ready' && k !== 'excluded'; }).length;
+  }
+  // 导出弹窗顶部的日期范围选择，默认「今天」。
+  function exportDateBar() {
+    const rows = activeRows();
+    const hit = (k) => rows.filter(r => inDateFilter(orderImportDate(r), k) || inDateFilter(orderSheetDate(r), k)).length;
+    const opts = [
+      `<option value="all" ${exportDate === 'all' ? 'selected' : ''}>全部（${rows.length}）</option>`,
+      ...DATE_RANGES.map(([k, label]) => `<option value="${k}" ${exportDate === k ? 'selected' : ''}>${label} ${rangeText(k)}（${hit(k)}）</option>`),
+      '<option value="----" disabled>──────</option>',
+      ...orderDateOptions().map(([d, n]) => `<option value="${esc(d)}" ${exportDate === d ? 'selected' : ''}>${esc(d)}（${n}）</option>`)
+    ].join('');
+    const ready = exportGroups().reduce((n, g) => n + g.rows.length, 0);
+    return `<div class="toolbar export-date-bar"><label class="date-filter"><span>导出日期</span><select id="export-date">${opts}</select></label><span class="muted">当前范围：${exportScopedRows().length} 条明细，其中可导出 ${ready} 条</span></div>`;
   }
   function builtinTemplateFor(name) {
     const n = norm(name || '');
@@ -2422,7 +2450,7 @@ if (filled) await save();
   const safeName=s=>s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,70)||'供应商';
   async function exportBytes(g){const errs=exportIssues(g);if(errs.length)throw Error(errs.join('；'));const t=effectiveTemplate(g.supplier);return OrderExcel.buildWorkbook({headers:t.columns.map(c=>c.header),rows:g.rows.map(r=>t.columns.map(c=>templateValue(r,c))),sheetName:t.sheetName||'Sheet1',widths:t.widths});}
   function pendingExportRows() {
-    return visibleOrders().filter(r => {
+    return exportScopedRows().filter(r => {
       const k = status(r).key;
       return k !== 'ready' && k !== 'excluded';
     });
@@ -2435,7 +2463,8 @@ if (filled) await save();
       const stt = status(r);
       byReason.set(stt.label, (byReason.get(stt.label) || 0) + 1);
     }
-    const scope = dateFilter === 'today' ? '今天' : (DATE_RANGES.find(([k]) => k === dateFilter) || [])[1] || '当前筛选';
+    const scope = exportDate === 'today' ? '今天'
+      : (DATE_RANGES.find(([k]) => k === exportDate) || [])[1] || (exportDate === 'all' ? '全部' : exportDate) ;
     return new Promise(resolve => {
       openModal('还有订单没匹配', `
         <div class="alert warning">${icon('shield')}<span>${esc(scope)}的订单里还有 <strong>${bad.length}</strong> 条没有匹配完成，直接导出会被跳过。</span></div>
