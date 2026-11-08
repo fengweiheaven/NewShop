@@ -67,7 +67,7 @@
     { name: '和世嘉', sheetName: 'sheet1', columns: [['<必填>订单号', 'orderNo', '', true], ['下单时间', 'date'], ['付款时间', 'paidAt'], ['备注', 'remark'], ['买家留言', 'buyerMessage'], ['运费', 'freight'], ['<必填>实付总额', 'paidAmount', '', true], ['<必填>收货人', 'recipient', '', true], ['手机', 'phone'], ['<必填>地址', 'address', '', true], ['快递', 'carrier'], ['邮编', 'postcode'], ['货到付款', 'cod'], ['代收金额', 'codAmount'], ['<必填>商品编码', 'supplierSku', '', true], ['商品名称', 'productName'], ['规格名称', 'spec'], ['数量', 'quantity'], ['<必填>单价', 'unitPrice', '', true], ['<必填>实付', 'amount', '', true]] }
   ].map(t => Object.assign({}, t, { columns: t.columns.map(c => ({ header: c[0], field: c[1], fallback: c[2] || '', required: !!c[3] })) }));
   const UNIFIED = [['orderNo','订单号'],['customer','客户'],['sourceProductName','来源商品名称'],['productName','统一商品名称'],['internalSku','内部编码'],['supplierName','供应商'],['supplierSku','供应商商品编码'],['spec','标准规格'],['quantity','数量'],['recipient','收货人'],['phone','收货电话'],['address','详细地址'],['buyerNickname','买家昵称'],['remark','备注'],['date','下单时间'],['sourceSku','客户商品编码'],['unitPrice','源单价'],['sourceFile','来源文件'],['sourceSheet','来源工作表'],['sourceRow','原始行号']];
-  let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', exportDate='today', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
+  let state, db, view='import', filter='all', dateFilter='today', shipmentDate='today', exportPreset='today', exportFrom='', exportTo='', query='', page=1, productPage=1, supplierFilter='all', selectedExport='', pending=[], importDraft=null, modalReturn=null, storageFailure=false;
   // 云端读取状态：ok=false 表示这次没读到（未登录 / 网络 / 权限），界面必须拒绝写入，
   // 更不能拿空白工作区去覆盖线上数据。
   let cloudBoot = { ok: false, exists: false, error: '' };
@@ -383,7 +383,9 @@
     $$('[data-export-group]').forEach(b => b.onclick = () => { selectedExport = b.dataset.exportGroup; refresh(); });
     $('#export-current')?.addEventListener('click', () => guardAsync(() => exportOne(exportGroups().find(g => g.supplier.id === selectedExport))));
     $('#format-manager-2')?.addEventListener('click', openFormatManager);
-    $('#export-date')?.addEventListener('change', e => { exportDate = e.target.value; refresh(); });
+    $('#export-from')?.addEventListener('change', e => { exportFrom = e.target.value; exportPreset = 'custom'; refresh(); });
+    $('#export-to')?.addEventListener('change', e => { exportTo = e.target.value; exportPreset = 'custom'; refresh(); });
+    $('#export-preset')?.addEventListener('change', e => { applyExportPreset(e.target.value); refresh(); });
   }
   function openExportModal() {
     const draw = () => {
@@ -1700,13 +1702,66 @@
       handled: status(order).key === 'ready' ? '是' : '否'
     };
   }
-  // 导出范围：按「导出日期」筛选本次批次里的明细（上传日期或下单日期命中即可）。
-  function inExportDate(o) {
-    if (!exportDate || exportDate === 'all') return true;
-    return inDateFilter(orderImportDate(o), exportDate) || inDateFilter(orderSheetDate(o), exportDate);
+  // 导出时间范围：按订单时间过滤（优先下单时间，没有则用批次导入时间）。
+  function parseDateTime(text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return null;
+    const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      const d = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const t = new Date(s);
+    return isNaN(t.getTime()) ? null : t;
+  }
+  function orderTimestamp(o) {
+    const own = parseDateTime(o && o.date);
+    if (own) return own;
+    const b = state.batches.find(x => x.id === o.batchId);
+    if (b && b.createdAt) { const t = new Date(b.createdAt); if (!isNaN(t.getTime())) return t; }
+    return null;
+  }
+  function rangeInput(d) {
+    if (!d) return '';
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function exportPresetRange(key) {
+    const now = new Date();
+    const day = (d, h, mi) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi, 0);
+    const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    if (key === 'all') return ['', ''];
+    if (key === 'today') return [rangeInput(day(now, 0, 0)), rangeInput(day(now, 23, 59))];
+    if (key === 'yesterday') { const y = new Date(now); y.setDate(now.getDate() - 1); return [rangeInput(day(y, 0, 0)), rangeInput(day(y, 23, 59))]; }
+    if (key === 'thisWeek') return [rangeInput(day(monday, 0, 0)), rangeInput(day(now, 23, 59))];
+    if (key === 'lastWeek') { const a = new Date(monday); a.setDate(a.getDate() - 7); const b = new Date(monday); b.setDate(b.getDate() - 1); return [rangeInput(day(a, 0, 0)), rangeInput(day(b, 23, 59))]; }
+    if (key === 'thisMonth') { const a = new Date(now.getFullYear(), now.getMonth(), 1); return [rangeInput(a), rangeInput(day(now, 23, 59))]; }
+    if (key === 'lastMonth') { const a = new Date(now.getFullYear(), now.getMonth() - 1, 1); const b = new Date(now.getFullYear(), now.getMonth(), 0); return [rangeInput(a), rangeInput(day(b, 23, 59))]; }
+    return ['', ''];
+  }
+  function applyExportPreset(key) {
+    exportPreset = key || 'today';
+    const r = exportPresetRange(exportPreset);
+    exportFrom = r[0]; exportTo = r[1];
+  }
+  const EXPORT_PRESETS = [['today', '今天'], ['yesterday', '昨天'], ['thisWeek', '本周'], ['lastWeek', '上周'], ['thisMonth', '本月'], ['lastMonth', '上月'], ['all', '全部'], ['custom', '自定义']];
+  function inExportRange(o) {
+    if (!exportFrom && !exportTo) return true;
+    const t = orderTimestamp(o);
+    if (!t) return false;
+    if (exportFrom) { const f = new Date(exportFrom); if (!isNaN(f.getTime()) && t < f) return false; }
+    if (exportTo) { const e = new Date(exportTo); if (!isNaN(e.getTime()) && t > e) return false; }
+    return true;
   }
   function exportScopedRows() {
-    return activeRows().filter(inExportDate);
+    return activeRows().filter(inExportRange);
+  }
+  function exportRangeLabel() {
+    if (exportPreset && exportPreset !== 'custom') return (EXPORT_PRESETS.find(p => p[0] === exportPreset) || [])[1] || '当前范围';
+    if (!exportFrom && !exportTo) return '全部时间';
+    const f = exportFrom ? exportFrom.replace('T', ' ') : '最早';
+    const t = exportTo ? exportTo.replace('T', ' ') : '现在';
+    return `${f} ~ ${t}`;
   }
   function exportGroups() {
     const buckets = new Map();
@@ -1722,18 +1777,20 @@
   function pendingExportCount() {
     return exportScopedRows().filter(r => { const k = status(r).key; return k !== 'ready' && k !== 'excluded'; }).length;
   }
-  // 导出弹窗顶部的日期范围选择，默认「今天」。
+  // 导出弹窗顶部的时间范围：起止时间可精确到分钟，另配快捷范围。
   function exportDateBar() {
-    const rows = activeRows();
-    const hit = (k) => rows.filter(r => inDateFilter(orderImportDate(r), k) || inDateFilter(orderSheetDate(r), k)).length;
-    const opts = [
-      `<option value="all" ${exportDate === 'all' ? 'selected' : ''}>全部（${rows.length}）</option>`,
-      ...DATE_RANGES.map(([k, label]) => `<option value="${k}" ${exportDate === k ? 'selected' : ''}>${label} ${rangeText(k)}（${hit(k)}）</option>`),
-      '<option value="----" disabled>──────</option>',
-      ...orderDateOptions().map(([d, n]) => `<option value="${esc(d)}" ${exportDate === d ? 'selected' : ''}>${esc(d)}（${n}）</option>`)
-    ].join('');
+    if (!exportFrom && !exportTo && exportPreset !== 'all') applyExportPreset(exportPreset);
+    const opts = EXPORT_PRESETS.map(([k, l]) => `<option value="${k}" ${exportPreset === k ? 'selected' : ''}>${l}</option>`).join('');
     const ready = exportGroups().reduce((n, g) => n + g.rows.length, 0);
-    return `<div class="toolbar export-date-bar"><label class="date-filter"><span>导出日期</span><select id="export-date">${opts}</select></label><span class="muted">当前范围：${exportScopedRows().length} 条明细，其中可导出 ${ready} 条</span></div>`;
+    return `<div class="toolbar export-date-bar">
+      <label class="date-filter"><span>导出时间</span>
+        <input type="datetime-local" id="export-from" value="${esc(exportFrom)}" aria-label="开始时间">
+        <span class="muted">至</span>
+        <input type="datetime-local" id="export-to" value="${esc(exportTo)}" aria-label="结束时间">
+      </label>
+      <select id="export-preset" aria-label="快捷时间范围">${opts}</select>
+      <span class="muted" id="export-note">当前范围：${exportScopedRows().length} 条明细，其中可导出 ${ready} 条</span>
+    </div>`;
   }
   function builtinTemplateFor(name) {
     const n = norm(name || '');
@@ -2463,8 +2520,7 @@ if (filled) await save();
       const stt = status(r);
       byReason.set(stt.label, (byReason.get(stt.label) || 0) + 1);
     }
-    const scope = exportDate === 'today' ? '今天'
-      : (DATE_RANGES.find(([k]) => k === exportDate) || [])[1] || (exportDate === 'all' ? '全部' : exportDate) ;
+    const scope = exportRangeLabel();
     return new Promise(resolve => {
       openModal('还有订单没匹配', `
         <div class="alert warning">${icon('shield')}<span>${esc(scope)}的订单里还有 <strong>${bad.length}</strong> 条没有匹配完成，直接导出会被跳过。</span></div>

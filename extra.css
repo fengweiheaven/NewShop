@@ -297,4 +297,8 @@ body.idle-locked{overflow:hidden}
 .quote-filter .muted{font-size:11px;white-space:nowrap}
 .quote-table input[type="number"]{width:110px}
 .quote-table input[type="date"]{width:140px}
+.export-date-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+.export-date-bar input[type="datetime-local"]{width:196px;height:32px}
+.export-date-bar select{height:32px;max-width:150px}
+.export-date-bar .muted{font-size:12px}
 .quote-check[hidden]{display:none}
