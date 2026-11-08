@@ -110,6 +110,7 @@
     for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
     // Correct only the known sample-alias constraint from the initial prototype.
     for(const p of v.products){if(!Array.isArray(p.quotes))p.quotes=[];for(const q of p.quotes){if(q.from===undefined)q.from='';}}
+    if(!v.costHistoryMigrated){for(const p of v.products){if(!Array.isArray(p.costHistory))p.costHistory=[];const n=Number(p.cost);if(!p.costHistory.length&&Number.isFinite(n)&&n>0)p.costHistory.push({price:n,from:''});}v.costHistoryMigrated=true;}
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
   function refreshBatchExportFlags(){
@@ -781,8 +782,11 @@
     let priceFrom = '';
     let priceSource = '';
     if (mode === 'supplier') {
-      const cost = p && p.cost !== '' && p.cost != null ? Number(p.cost) : NaN;
+      const day = p ? orderPriceDate(o) : '';
+      const hit = p ? costHit(p, day) : null;
+      const cost = hit ? Number(hit.price) : (p && p.cost !== '' && p.cost != null ? Number(p.cost) : NaN);
       price = Number.isFinite(cost) ? cost : null;
+      priceFrom = hit ? String(hit.from || '') : '';
       priceSource = 'cost';
     } else {
       // 客户价按订单日期取「当时生效」的那一条：调价只影响生效日之后，历史账单不受影响。
@@ -949,7 +953,7 @@
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
         ${lines.length ? `<div class="recon-bulk"><span class="muted" id="recon-pick-count">已选 0 条</span><button type="button" class="btn ghost small danger-ghost" id="recon-bulk-del" disabled>删除所选</button></div>` : ''}${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
-        <div class="table-wrap"><table class="data-table pool-table"><thead><tr><th class="pick-col"><input type="checkbox" id="recon-pick-all" aria-label="全选"></th>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}<th class="pick-col">操作</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="pick-col"><input type="checkbox" data-recon-pick="${esc(l.orderId)}" aria-label="选择"></td>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}"${i === 10 && l.priceFrom && !isSup ? ` title="按 ${esc(l.priceFrom)} 起生效的价格"` : ''}>${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}<td class="pick-col"><button type="button" class="text-link danger" data-recon-del="${esc(l.orderId)}">删除</button></td></tr>`).join('')}</tbody></table></div>
+        <div class="table-wrap"><table class="data-table pool-table"><thead><tr><th class="pick-col"><input type="checkbox" id="recon-pick-all" aria-label="全选"></th>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}<th class="pick-col">操作</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="pick-col"><input type="checkbox" data-recon-pick="${esc(l.orderId)}" aria-label="选择"></td>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}"${i === 10 && l.priceFrom ? ` title="按 ${esc(l.priceFrom)} 起生效的价格"` : ''}>${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}<td class="pick-col"><button type="button" class="text-link danger" data-recon-del="${esc(l.orderId)}">删除</button></td></tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
   }
     async function importRecon(file) {
@@ -1204,6 +1208,7 @@
           }
           if (sup) prod.supplierId = sup.id;
           if (!prod.supplierSku) prod.supplierSku = prod.internalSku;
+          syncCostToday(prod);
           if (!prod.createdAt) prod.createdAt = get(r, 'createdAt') || new Date().toISOString();
           if (!prod.status) prod.status = '合作中';
         }
@@ -1381,6 +1386,47 @@
     else product.quotes.push({ customer: customerName, price, from: day });
     product.quotesInit = true;
   }
+  // 供应商供价（一件代发价）同样按生效日期留档：product.costHistory = [{ price, from }]
+  function costEntries(product) {
+    return (product && Array.isArray(product.costHistory) ? product.costHistory : [])
+      .slice()
+      .sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')));
+  }
+  function costHit(product, dateKey) {
+    const list = costEntries(product);
+    if (!list.length) return null;
+    const day = String(dateKey || '');
+    let hit = null;
+    for (const c of list) {
+      const from = String(c.from || '');
+      if (!day || !from || from <= day) hit = c;
+    }
+    return hit || null;
+  }
+  function costPrice(product, dateKey) {
+    const hit = costHit(product, dateKey);
+    if (!hit) return null;
+    const n = Number(hit.price);
+    return Number.isFinite(n) ? n : null;
+  }
+  function setCost(product, price, from) {
+    if (!Array.isArray(product.costHistory)) product.costHistory = [];
+    const n = Math.round(Number(price) * 100) / 100;
+    if (!Number.isFinite(n) || n <= 0) return;
+    const day = String(from || '');
+    const hit = product.costHistory.find(c => String(c.from || '') === day);
+    if (hit) hit.price = n; else product.costHistory.push({ price: n, from: day });
+    const now = costPrice(product, stamp());
+    product.cost = now == null ? n : now;
+  }
+  // 表单或导入改了 p.cost 之后调用：把变化记成一条生效记录，不覆盖历史。
+  function syncCostToday(product) {
+    const n = Number(product && product.cost);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const cur = costPrice(product, stamp());
+    if (cur != null && Math.abs(cur - n) < 0.005) return;
+    setCost(product, n, costEntries(product).length ? stamp() : '');
+  }
   function quoteModal(pid) {
     const p = pById(pid);
     if (!p) return;
@@ -1497,6 +1543,41 @@
       quoteHistoryModal(pid, customerName);
     });
   }
+  function costHistoryModal(pid) {
+    const p = pById(pid);
+    if (!p) return;
+    const list = costEntries(p);
+    const rows = list.length
+      ? list.map(c => `<tr><td>${c.from ? esc(c.from) : '最早（未标注日期）'}</td><td class="numeric">¥${reconMoney(c.price)}</td><td><button type="button" class="text-link danger" data-del-cost="${esc(String(c.from || ''))}">删除</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty-cell">还没有供价记录</td></tr>';
+    openModal(`供价历史 · ${p.name}`, `
+      <p class="muted">供应商对账按下单日期取当天生效的供价。改价就新增一条，旧月份的对账单不会变。</p>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>生效日期</th><th>一件代发价</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="form-grid" style="margin-top:14px">
+        ${field('新供价（元）', 'cost-new', '', { type: 'number', hint: '例如 20.5' })}
+        ${field('生效日期', 'cost-from', stamp(), { type: 'date', hint: '默认今天' })}
+      </div>
+      <p class="muted">删除某条后，从该日期起会改用上一条供价。</p>
+    `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="cost-add">保存供价</button>`, true);
+    $('#cost-add').onclick = async () => {
+      const price = Number($('[name="cost-new"]').value);
+      const from = String($('[name="cost-from"]').value || '').trim() || stamp();
+      if (!Number.isFinite(price) || price <= 0) { toast('请输入大于 0 的供价。', 'warning'); return; }
+      setCost(p, price, from);
+      await save();
+      toast(`已记录供价 ¥${reconMoney(price)}（自 ${from} 起）。`);
+      costHistoryModal(pid);
+    };
+    $$('[data-del-cost]').forEach(b => b.onclick = async () => {
+      const from = b.dataset.delCost;
+      p.costHistory = (p.costHistory || []).filter(c => String(c.from || '') !== from);
+      const now = costPrice(p, stamp());
+      if (now != null) p.cost = now;
+      await save();
+      toast('已删除该条供价。');
+      costHistoryModal(pid);
+    });
+  }
   const POOL_COMMON = ['no', 'supplier', 'name', 'spec', 'netContent', 'cost', 'suggestPrice', 'internalSku', 'supplierSku', 'barcode', 'status'];
   const poolCell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
   const poolLink = v => v ? `<a class="text-link" href="${esc(v)}" target="_blank" rel="noopener">链接</a>` : '<span class="muted">—</span>';
@@ -1579,7 +1660,7 @@
     const cols = poolColumnKeys().map(k => POOL_COLUMNS.find(c => c.key === k)).filter(Boolean);
     return `<div class="table-wrap"><table class="data-table pool-table"><thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${slice.map((p, i) => {
       const s = sById(p.supplierId) || {};
-      return `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.cell(p, offset + i, s)}</td>`).join('')}<td><button class="text-link" data-quote-product="${esc(p.id)}">报价单</button> <button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
+      return `<tr>${cols.map(c => `<td class="${c.cls || ''}">${c.cell(p, offset + i, s)}</td>`).join('')}<td><button class="text-link" data-quote-product="${esc(p.id)}">报价单</button> <button class="text-link" data-cost-product="${esc(p.id)}">供价</button> <button class="text-link" data-edit-product="${esc(p.id)}">编辑</button></td></tr>`;
     }).join('') || `<tr><td colspan="${cols.length + 1}" class="empty-cell">没有找到商品，请导入报价单或调整筛选。</td></tr>`}</tbody></table></div><div class="pagination"><span>共 ${ps.length} 个商品 · 每页 40 个</span><div><button class="btn ghost small" data-ppage="${productPage - 1}" ${productPage <= 1 ? 'disabled' : ''}>上一页</button><span>${productPage} / ${pages}</span><button class="btn ghost small" data-ppage="${productPage + 1}" ${productPage >= pages ? 'disabled' : ''}>下一页</button></div></div>`;
   }
   function exportRow(order, product) {
@@ -1694,7 +1775,7 @@
   }
   const guardAsync=async fn=>{try{await fn();}catch(e){toast(e.message||'操作失败，请重试。','warning');}};
   function bindOrderActions(){$$('[data-del-order]').forEach(b=>b.onclick=()=>confirmDialog('删除订单明细','确认删除这一条明细？删除后不可恢复。',async()=>{await deleteOrders([b.dataset.delOrder],'已删除 1 条明细。');}));$$('[data-edit-order]').forEach(b=>b.onclick=()=>orderModal(b.dataset.editOrder));$$('[data-page]').forEach(b=>b.onclick=()=>{page=Number(b.dataset.page);$('#orders-table').innerHTML=orderTable();bindOrderActions();});}
-  function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-quote-product]').forEach(b=>b.onclick=()=>quoteModal(b.dataset.quoteProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
+  function bindProductActions(){$$('[data-edit-product]').forEach(b=>b.onclick=()=>productModal(b.dataset.editProduct));$$('[data-quote-product]').forEach(b=>b.onclick=()=>quoteModal(b.dataset.quoteProduct));$$('[data-cost-product]').forEach(b=>b.onclick=()=>costHistoryModal(b.dataset.costProduct));$$('[data-ppage]').forEach(b=>b.onclick=()=>{productPage=Number(b.dataset.ppage);$('#products-table').innerHTML=productsTable();bindProductActions();});}
   async function queueFiles(files){if(!files?.length)return;
   if(OrderStore.mode==='cloudbase'&&!cloudBoot.ok){toast('云端数据没有读取成功，先刷新页面再导入，以免数据落到空白工作区。','warning');return;}
   if (OrderStore.mode === 'cloudbase') {
@@ -1812,7 +1893,7 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
   }
   function productModal(id){if(!state.suppliers.length){toast('请先新增供应商。','warning');return;}const p=copy(pById(id)||{id:uid(),internalSku:nextProductSku(),name:'',spec:'',netContent:'',image:'',unit:'盒',supplierId:supplierFilter==='all'?state.suppliers[0].id:supplierFilter,supplierSku:'',barcode:'',brand:'',category:'',cost:'',groupPrice:'',broadcastPrice:'',suggestPrice:'',marginOwn:'',marginBroadcast:'',jdPrice:'',link:'',aliases:[],note:'',shipping:'',taxRate:'',taxCode:'',shelfLife:'',origin:'',shipFrom:'',size:'',remoteExcluded:'否',status:'合作中',minQty:'',createdAt:''});openModal(id?'编辑标准商品':'新增标准商品',`<form id="product-form"><div class="form-grid">${field('标准商品名称','name',p.name,{required:true,full:true})}${field('内部商品编码','internalSku',p.internalSku,{hint:'留空自动生成，例如 OF-012'})}${field('内容物配置','spec',p.spec,{hint:'例如 40枚/盒'})}${field('净含量','netContent',p.netContent||'',{hint:'例如 200g'})}${field('计量单位','unit',p.unit)}${selectField('供应商','supplierId',state.suppliers.map(s=>[s.id,s.name]),p.supplierId)}${field('供应商商品编码','supplierSku',p.supplierSku,{hint:'留空则与内部编码相同'})}${field('69码 / 条码','barcode',p.barcode||'')}${field('品牌','brand',p.brand||'')}${field('商品品类','category',p.category||'')}${field('保质期','shelfLife',p.shelfLife||'',{hint:'例如 12 个月'})}${field('产地','origin',p.origin||'')}${field('发货地','shipFrom',p.shipFrom||'')}${field('产品尺寸','size',p.size||'',{hint:'例如 20×15×8cm'})}${field('图片链接','image',p.image||'',{full:true})}${field('集采价','groupPrice',p.groupPrice||'',{type:'number'})}${field('集采起订量','minQty',p.minQty||'',{type:'number'})}${field('一件代发价格','cost',p.cost||'',{type:'number',hint:'供应商单件代发价，用于供应商对账'})}${field('广电供价','broadcastPrice',p.broadcastPrice||'',{type:'number'})}${field('零售价','suggestPrice',p.suggestPrice||'',{type:'number'})}${field('定宣毛利（0.2 = 20%）','marginOwn',p.marginOwn||'',{type:'number'})}${field('广电毛利（0.2 = 20%）','marginBroadcast',p.marginBroadcast||'',{type:'number'})}${field('京东价','jdPrice',p.jdPrice||'',{type:'number'})}${field('快递','shipping',p.shipping||'',{hint:'例如 中通/圆通'})}${field('税率','taxRate',p.taxRate||'',{hint:'例如 13%'})}${field('税收编码','taxCode',p.taxCode||'')}${selectField('偏远不发','remoteExcluded',[['否','否'],['是','是']],p.remoteExcluded||'否')}${selectField('合作状态','status',[['合作中','合作中'],['暂停','暂停'],['终止','终止']],p.status||'合作中')}${field('京东/天猫链接','link',p.link||'',{full:true})}${field('新增通用商品别名（每行一个）','newAliases','',{textarea:true,full:true,hint:'精确匹配；不同包装规格请分别建商品。客户专属映射在订单处理时确认。'})}</div><h3 class="section-label">已保存的客户别名</h3><div id="alias-list">${p.aliases.map((a,i)=>`<div class="alias-item"><span><strong>${esc(a.customer||'通用')}</strong> ${esc(a.name||a.code)}<small>${esc(a.spec||'')}</small></span><button type="button" class="text-link" data-remove-alias="${i}">移除</button></div>`).join('')||'<p class="muted">尚无客户别名</p>'}</div><p class="form-error" id="product-error"></p></form>`,`<button class="btn secondary" data-cancel>取消</button>${id?'<button class="btn danger" id="delete-product">删除商品</button>':''}<button class="btn" id="save-product">保存商品</button>`,true);
     $$('[data-remove-alias]').forEach(b=>b.onclick=()=>{p.aliases[Number(b.dataset.removeAlias)]=null;b.closest('.alias-item').remove();});
-    $('#save-product').onclick=async()=>{const f=new FormData($('#product-form'));['name','internalSku','spec','unit','supplierId','supplierSku','barcode','brand','category','cost','groupPrice','broadcastPrice','suggestPrice','marginOwn','marginBroadcast','jdPrice','link','netContent','image','shipping','taxRate','taxCode','shelfLife','origin','shipFrom','size','remoteExcluded','status','minQty'].forEach(k=>p[k]=String(f.get(k)||'').trim());if(!p.name){$('#product-error').textContent='请填写商品名称。';return;}if(!p.createdAt)p.createdAt=new Date().toISOString();p.internalSku=p.internalSku||nextProductSku();p.supplierSku=p.supplierSku||p.internalSku;if(state.products.some(x=>x.id!==p.id&&(norm(x.internalSku)===norm(p.internalSku)||x.supplierId===p.supplierId&&x.supplierSku===p.supplierSku))){$('#product-error').textContent='内部编码或同供应商的商品编码已存在。';return;}p.aliases=p.aliases.filter(Boolean);String(f.get('newAliases')||'').split('\n').map(x=>x.trim()).filter(Boolean).forEach(name=>{if(!p.aliases.some(a=>!a.customer&&a.name===name))p.aliases.push({customer:'',name,spec:'',code:''});});const idx=state.products.findIndex(x=>x.id===p.id);idx<0?state.products.push(p):state.products.splice(idx,1,p);invalidate();await save();closeModal();render();toast('商品与映射已保存。');};
+    $('#save-product').onclick=async()=>{const f=new FormData($('#product-form'));['name','internalSku','spec','unit','supplierId','supplierSku','barcode','brand','category','cost','groupPrice','broadcastPrice','suggestPrice','marginOwn','marginBroadcast','jdPrice','link','netContent','image','shipping','taxRate','taxCode','shelfLife','origin','shipFrom','size','remoteExcluded','status','minQty'].forEach(k=>p[k]=String(f.get(k)||'').trim());if(!p.name){$('#product-error').textContent='请填写商品名称。';return;}if(!p.createdAt)p.createdAt=new Date().toISOString();p.internalSku=p.internalSku||nextProductSku();p.supplierSku=p.supplierSku||p.internalSku;if(state.products.some(x=>x.id!==p.id&&(norm(x.internalSku)===norm(p.internalSku)||x.supplierId===p.supplierId&&x.supplierSku===p.supplierSku))){$('#product-error').textContent='内部编码或同供应商的商品编码已存在。';return;}p.aliases=p.aliases.filter(Boolean);String(f.get('newAliases')||'').split('\n').map(x=>x.trim()).filter(Boolean).forEach(name=>{if(!p.aliases.some(a=>!a.customer&&a.name===name))p.aliases.push({customer:'',name,spec:'',code:''});});const idx=state.products.findIndex(x=>x.id===p.id);idx<0?state.products.push(p):state.products.splice(idx,1,p);syncCostToday(p);invalidate();await save();closeModal();render();toast('商品与映射已保存。');};
     $('#delete-product')?.addEventListener('click',()=>confirmDialog('删除商品',`删除“${p.name}”后，相关订单需要重新映射。`,async()=>{state.products=state.products.filter(x=>x.id!==p.id);invalidate();await save();render();}));
   }
   function reviewCandidates(){const cs=OrderSeed.candidates.filter(c=>pById(c.productId));openModal('确认样表中的商品映射',`<p class="muted">供应商名称取自友本模板。请核对实际供货方及商品款式；勾选后会保存为对应客户的别名。</p>${cs.map((c,i)=>{const p=pById(c.productId);return `<label class="candidate-row"><input type="checkbox" name="candidate" value="${i}" checked><span><small>${esc(c.customer)} · 客户商品名称</small><strong>${esc(c.name)}</strong><span class="mapping-arrow">${icon('arrow')} ${esc(p.name)}</span><small>${esc(sById(p.supplierId)?.name)} · ${esc(p.supplierSku)} · ${esc(c.reason)}</small></span></label>`;}).join('')}`,`<button class="btn secondary" data-cancel>暂不确认</button><button class="btn" id="confirm-candidates">确认所选映射</button>`,true);$('#confirm-candidates').onclick=async()=>{let n=0;$$('[name=candidate]:checked').forEach(el=>{const c=cs[Number(el.value)],p=pById(c.productId);const a={customer:c.customer,name:c.name,spec:'',code:''};const existing=p.aliases.find(x=>x.customer===a.customer&&x.name===a.name);if(existing){existing.spec='';}else{p.aliases.push(a);n++;}});invalidate();await save();closeModal();render();toast(`已确认 ${n} 条新别名映射。`);};}
@@ -1955,9 +2036,10 @@ $('#save-order').onclick=async()=>{const f=new FormData($('#order-form'));const 
           unit: r.unit || existing?.unit || '',
           sourceFile: fileName
         };
-        if (existing) { Object.assign(existing, payload); updated++; }
+        if (existing) { Object.assign(existing, payload); syncCostToday(existing); updated++; }
         else {
           const created = { id: uid(), internalSku, supplierId: sup.id, aliases: [], note: r.barcode ? '' : '报价单未提供条码，编码为内部占位，请向供应商补齐。', ...payload };
+          syncCostToday(created);
           state.products.push(created); owned.push(created);
           added++;
         }
