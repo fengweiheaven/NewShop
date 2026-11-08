@@ -109,7 +109,7 @@
     if(!Array.isArray(v.recharges)){v.recharges=[];for(const c of v.customers){const n=Number(c.deposit);if(Number.isFinite(n)&&n>0)v.recharges.push({id:uid(),customer:c.name,amount:n,date:String(c.createdAt||new Date().toISOString()).slice(0,10),note:'历史充值',createdAt:new Date().toISOString()});}}
     for(const r of v.recharges){if(!r.kind)r.kind='customer';if(!r.name)r.name=r.customer||'';}
     // Correct only the known sample-alias constraint from the initial prototype.
-    for(const p of v.products){if(!Array.isArray(p.quotes))p.quotes=[];}
+    for(const p of v.products){if(!Array.isArray(p.quotes))p.quotes=[];for(const q of p.quotes){if(q.from===undefined)q.from='';}}
     for(const p of v.products)for(const a of p.aliases||[]){const c=OrderSeed.candidates.find(c=>c.productId===p.id&&norm(c.customer)===norm(a.customer)&&norm(c.name)===norm(a.name));if(c&&c.spec&&norm(a.spec)===norm(c.spec))a.spec='';}
   }
   function refreshBatchExportFlags(){
@@ -761,6 +761,14 @@
   let reconGroup = '';
   let reconScope = 'all';
   let reconMode = 'customer';
+  // 取价用的日期：优先订单自带的下单时间，其次该批次的导入日期。
+  function orderPriceDate(o) {
+    const d = orderSheetDate(o);
+    if (d) return d;
+    const b = state.batches.find(x => x.id === o.batchId);
+    if (b && b.createdAt) { const t = new Date(b.createdAt); if (!isNaN(t.getTime())) return dateKey(t); }
+    return '';
+  }
   function reconBase() {
     return (reconScope === 'active' ? activeRows() : state.orders).filter(o => !o.excluded);
   }
@@ -770,19 +778,26 @@
     const customer = String(o.customer || '').trim() || '未命名客户';
     const supplier = p ? (sById(p.supplierId)?.name || '') : '';
     let price = null;
+    let priceFrom = '';
+    let priceSource = '';
     if (mode === 'supplier') {
       const cost = p && p.cost !== '' && p.cost != null ? Number(p.cost) : NaN;
       price = Number.isFinite(cost) ? cost : null;
+      priceSource = 'cost';
     } else {
-      const quoted = p ? quotePrice(p, customer) : null;
+      // 客户价按订单日期取「当时生效」的那一条：调价只影响生效日之后，历史账单不受影响。
+      const day = p ? orderPriceDate(o) : '';
+      const hit = p ? quoteHit(p, customer, day) : null;
       const raw = o.unitPrice === '' || o.unitPrice == null ? '' : String(o.unitPrice).trim();
-      price = quoted != null ? quoted : (raw === '' ? null : (Number(raw) || 0));
+      if (hit) { price = Number(hit.price); priceFrom = String(hit.from || ''); priceSource = 'quote'; }
+      else { price = raw === '' ? null : (Number(raw) || 0); priceSource = raw === '' ? '' : 'unitPrice'; }
+      if (!Number.isFinite(price)) price = null;
     }
     return {
       customer, supplier: supplier || '未分配供应商', supplierKey: supplier || '未分配供应商',
       orderNo: String(o.orderNo || ''), date: String(o.date || ''),
       product: p ? p.name : String(o.productName || ''), spec: p ? (p.spec || '') : String(o.sourceSpec || ''),
-      sku: p ? (p.supplierSku || '') : '', barcode: p ? (p.barcode || '') : '', orderId: o.id, invoiced: !!o.invoiced, qty, price,
+      sku: p ? (p.supplierSku || '') : '', barcode: p ? (p.barcode || '') : '', orderId: o.id, invoiced: !!o.invoiced, qty, price, priceFrom, priceSource,
       carrier: o.carrier || '', trackingNo: o.trackingNo || '', remark: o.remark || '', reconStatus: o.reconStatus || '', payStatus: o.payStatus || '', payee: o.payee || '', payMethod: o.payMethod || '', paidAt: o.paidAt || '', supReconStatus: o.supReconStatus || '', supPayStatus: o.supPayStatus || '', supPayee: o.supPayee || '', supPayMethod: o.supPayMethod || '', supPaidAt: o.supPaidAt || '', freight: Number(o.shippingFee) || 0, taxCode: p ? (p.taxCode || '') : '', taxRate: p ? (p.taxRate || '') : '',
       amount: price == null ? null : Math.round(price * qty * 100) / 100,
       recipient: o.recipient || '', phone: o.phone || '', address: o.address || '', status: st.label
@@ -934,7 +949,7 @@
         ${groups.map(g => `<button class="export-group ${pick === g.name ? 'active' : ''}" data-recon-group="${esc(g.name)}"><span class="supplier-avatar">${esc(g.name.slice(0, 1))}</span><span><strong>${esc(g.name)}</strong><small>${g.count} 条明细 · ¥${reconMoney(g.amount)}${!isSup && g.deposit ? ` · 余额 ¥${reconMoney(g.balance)}` : ''}</small></span>${icon('arrow')}</button>`).join('')}
       </aside><section class="card export-preview"><div class="card-header"><div><h2>${pick ? esc(pick) : `全部${groupLabel}`} · 订单明细</h2><p class="muted">${reconScope === 'active' ? '仅本次勾选的批次' : '含历史批次'} · ${lines.length} 条 · ${isSup ? '应付' : '应收'}合计 ¥${reconMoney(amount)}${noPrice ? ` · ${noPrice} 条缺${isSup ? '供价' : '单价'}` : ''}</p></div><div class="intro-actions"><div class="tabs"><button class="tab ${reconScope === 'all' ? 'active' : ''}" data-recon-scope="all">全部订单</button><button class="tab ${reconScope === 'active' ? 'active' : ''}" data-recon-scope="active">仅本次批次</button></div></div></div>
         ${lines.length ? `<div class="recon-bulk"><span class="muted" id="recon-pick-count">已选 0 条</span><button type="button" class="btn ghost small danger-ghost" id="recon-bulk-del" disabled>删除所选</button></div>` : ''}${noPrice ? `<div class="alert warning">${icon('shield')}<span>${noPrice} 条明细没有${isSup ? '供价（商品档案未填）' : '单价（源表未提供）'}，金额不计入合计；导出后可在 Excel 里补。</span></div>` : ''}
-        <div class="table-wrap"><table class="data-table pool-table"><thead><tr><th class="pick-col"><input type="checkbox" id="recon-pick-all" aria-label="全选"></th>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}<th class="pick-col">操作</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="pick-col"><input type="checkbox" data-recon-pick="${esc(l.orderId)}" aria-label="选择"></td>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}">${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}<td class="pick-col"><button type="button" class="text-link danger" data-recon-del="${esc(l.orderId)}">删除</button></td></tr>`).join('')}</tbody></table></div>
+        <div class="table-wrap"><table class="data-table pool-table"><thead><tr><th class="pick-col"><input type="checkbox" id="recon-pick-all" aria-label="全选"></th>${RECON_BILL_HEADERS.map(h => `<th>${h}</th>`).join('')}<th class="pick-col">操作</th></tr></thead><tbody>${lines.slice(0, 200).map(l => `<tr><td class="pick-col"><input type="checkbox" data-recon-pick="${esc(l.orderId)}" aria-label="选择"></td>${reconBillValues(l, isSup ? 'supplier' : 'customer').map((v, i) => i === 28 ? `<td><label class="checkbox-row"><input type="checkbox" data-invoice="${esc(l.orderId)}" ${l.invoiced ? 'checked' : ''}><span>${l.invoiced ? '已开票' : '未开票'}</span></label></td>` : `<td class="${typeof v === 'number' ? 'numeric' : ''}"${i === 10 && l.priceFrom && !isSup ? ` title="按 ${esc(l.priceFrom)} 起生效的价格"` : ''}>${v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`).join('')}<td class="pick-col"><button type="button" class="text-link danger" data-recon-del="${esc(l.orderId)}">删除</button></td></tr>`).join('')}</tbody></table></div>
         <div class="pagination"><span>预览前 ${Math.min(lines.length, 200)} 条，导出包含全部 ${lines.length} 条。</span></div></section></div>`}`;
   }
     async function importRecon(file) {
@@ -1215,10 +1230,8 @@
             }
             if (!prod) { qMiss++; continue; }
             if (!Array.isArray(prod.quotes)) prod.quotes = [];
-            const hit = prod.quotes.find(q => norm(q.customer) === norm(cust));
             const val = price == null || !Number.isFinite(price) ? 0 : price;
-            if (hit) hit.price = val; else prod.quotes.push({ customer: cust, price: val });
-            prod.quotesInit = true;
+            setQuote(prod, cust, val, '');
             qCount++;
           }
         }
@@ -1242,12 +1255,15 @@
       ];
     });
     const scope = supplierFilter === 'all' ? '全部供应商' : (sById(supplierFilter)?.name || '供应商');
-    const quoteRows = [['供应商名称', '品名', '内容物配置', '内部编码', '供应商编码', '客户', '报价（元）']];
+    const quoteRows = [['供应商名称', '品名', '内容物配置', '内部编码', '供应商编码', '客户', '报价（元）', '生效日期']];
+    const todayKey = stamp();
     for (const p of list) {
       const sup = sById(p.supplierId) || {};
-      for (const q of (p.quotes || [])) {
-        if (!q || !q.customer) continue;
-        quoteRows.push([sup.name || '', p.name || '', p.spec || '', p.internalSku || '', p.supplierSku || '', q.customer, q.price == null ? '' : q.price]);
+      const names = [...new Set((p.quotes || []).filter(q => q && q.customer).map(q => q.customer))];
+      for (const name of names) {
+        const hit = quoteHit(p, name, todayKey);
+        if (!hit) continue;
+        quoteRows.push([sup.name || '', p.name || '', p.spec || '', p.internalSku || '', p.supplierSku || '', name, hit.price == null ? '' : hit.price, hit.from || '']);
       }
     }
     if (quoteRows.length > 1 && window.XLSX) {
@@ -1331,27 +1347,62 @@
       if (!ev.target.closest('.combo')) close();
     });
   }
-  function quotePrice(product, customerName) {
-    if (!product || !Array.isArray(product.quotes)) return null;
-    const q = product.quotes.find(x => norm(x.customer) === norm(customerName));
-    if (!q) return null;
-    const n = Number(q.price);
+  // 某个客户在某商品上的全部价格记录，按生效日期升序；from 为空表示「最早」。
+  function quoteEntries(product, customerName) {
+    if (!product || !Array.isArray(product.quotes)) return [];
+    return product.quotes
+      .filter(q => norm(q.customer) === norm(customerName))
+      .sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')));
+  }
+  // 取在 dateKey 当天生效的那条价格；dateKey 为空时取最新一条。
+  function quoteHit(product, customerName, dateKey) {
+    const list = quoteEntries(product, customerName);
+    if (!list.length) return null;
+    const day = String(dateKey || '');
+    let hit = null;
+    for (const q of list) {
+      const from = String(q.from || '');
+      if (!day || !from || from <= day) hit = q;
+    }
+    return hit || null;
+  }
+  function quotePrice(product, customerName, dateKey) {
+    const hit = quoteHit(product, customerName, dateKey);
+    if (!hit) return null;
+    const n = Number(hit.price);
     return Number.isFinite(n) ? n : null;
+  }
+  // 写入一条价格：同客户 + 同生效日视为覆盖，不会产生重复行。
+  function setQuote(product, customerName, price, from) {
+    if (!Array.isArray(product.quotes)) product.quotes = [];
+    const day = String(from || '');
+    const hit = product.quotes.find(q => norm(q.customer) === norm(customerName) && String(q.from || '') === day);
+    if (hit) hit.price = price;
+    else product.quotes.push({ customer: customerName, price, from: day });
+    product.quotesInit = true;
   }
   function quoteModal(pid) {
     const p = pById(pid);
     if (!p) return;
+    const today = stamp();
     const custs = state.customers.map(c => c.name);
     if (!Array.isArray(p.quotes)) p.quotes = [];
-    const current = new Map(p.quotes.map(q => [norm(q.customer), { customer: q.customer, price: q.price }]));
-    const rowHtml = (name, price) => `<tr data-qrow="${esc(name)}"><td>${esc(name)}</td><td><input type="number" min="0" step="0.01" data-qprice value="${esc(price == null ? '' : price)}" placeholder="输入报价" aria-label="${esc(name)} 报价"></td><td><button type="button" class="text-link danger" data-qdel>移除</button></td></tr>`;
+    const hasQuote = name => quoteEntries(p, name).length > 0;
+    const rowHtml = name => {
+      const price = quotePrice(p, name, today);
+      const from = (quoteHit(p, name, today) || {}).from || '';
+      const shown = price == null
+        ? '<span class="muted">未定价</span>'
+        : `¥${reconMoney(price)}${from ? `<small class="muted"> 自 ${esc(from)}</small>` : ''}`;
+      return `<tr data-qrow="${esc(name)}"><td>${esc(name)}</td><td class="numeric">${shown}</td><td><input type="number" min="0" step="0.01" data-qprice value="${esc(price == null ? '' : price)}" aria-label="${esc(name)} 价格"></td><td><input type="date" data-qfrom value="${today}" aria-label="${esc(name)} 生效日期"></td><td><button type="button" class="text-link" data-qhist>历史</button> <button type="button" class="text-link danger" data-qdel>移除</button></td></tr>`;
+    };
     openModal(`报价单 · ${p.name}`, `
-      <p class="muted">勾选需要报价的客户，填好价格后保存。没勾选的客户不会计入对账金额。</p>
-      ${custs.length ? `<div class="quote-filter"><input id="q-filter" type="search" placeholder="输入客户名快速筛选，例如 广州" autocomplete="off"><span class="muted" id="q-filter-count">共 ${custs.length} 个客户</span></div><div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${current.has(norm(n)) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
-      <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>报价（元）</th><th>操作</th></tr></thead><tbody id="q-body">
-        ${[...current.values()].map(d => rowHtml(d.customer, d.price)).join('')}
+      <p class="muted">勾选客户、填写价格。改价时把「生效日期」填成新价开始的那天（例如 2026-12-01）：该日期之前的对账单仍按旧价，之后按新价，旧价会保留在「历史」里。</p>
+      ${custs.length ? `<div class="quote-filter"><input id="q-filter" type="search" placeholder="输入客户名快速筛选，例如 广州" autocomplete="off"><span class="muted" id="q-filter-count">共 ${custs.length} 个客户</span></div><div class="quote-checks">${custs.map(n => `<label class="quote-check"><input type="checkbox" data-qpick="${esc(n)}" ${hasQuote(n) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>` : '<div class="alert info">客户库还没有客户，请先到客户库新增。</div>'}
+      <div class="table-wrap" style="margin-top:12px"><table class="data-table quote-table"><thead><tr><th>客户</th><th>当前生效价</th><th>价格（元）</th><th>生效日期</th><th>操作</th></tr></thead><tbody id="q-body">
+        ${custs.filter(hasQuote).map(n => rowHtml(n)).join('')}
       </tbody></table></div>
-      <p class="muted" id="q-empty" style="margin-top:10px;${current.size ? 'display:none' : ''}">上面勾选客户后，这里会列出报价行。</p>
+      <p class="muted" id="q-empty" style="margin-top:10px;${custs.some(hasQuote) ? 'display:none' : ''}">上面勾选客户后，这里会列出报价行。</p>
     `, `<button class="btn secondary" data-cancel>关闭</button><button class="btn" id="q-save">保存报价</button>`, true);
 
     const body = $('#q-body');
@@ -1365,6 +1416,7 @@
         if (cb) cb.checked = false;
         refreshEmpty();
       };
+      tr.querySelector('[data-qhist]').onclick = () => quoteHistoryModal(pid, tr.dataset.qrow);
     };
     body.querySelectorAll('tr[data-qrow]').forEach(bindRow);
 
@@ -1385,7 +1437,7 @@
       if (cb.checked) {
         if (!existing) {
           const tr = document.createElement('tbody');
-          tr.innerHTML = rowHtml(name, '');
+          tr.innerHTML = rowHtml(name);
           const node = tr.firstElementChild;
           body.appendChild(node);
           bindRow(node);
@@ -1398,18 +1450,52 @@
     });
 
     $('#q-save').onclick = async () => {
-      const quotes = [];
-      let blank = 0;
+      let added = 0, changed = 0, bad = 0;
+      const keep = new Set();
       body.querySelectorAll('tr[data-qrow]').forEach(tr => {
-        const val = tr.querySelector('[data-qprice]').value.trim();
-        if (val === '' || !Number.isFinite(Number(val))) { blank++; return; }
-        quotes.push({ customer: tr.dataset.qrow, price: Math.round(Number(val) * 100) / 100 });
+        const name = tr.dataset.qrow;
+        keep.add(norm(name));
+        const raw = String(tr.querySelector('[data-qprice]').value || '').trim();
+        if (raw === '') return;
+        const price = Math.round(Number(raw) * 100) / 100;
+        if (!Number.isFinite(price) || price < 0) { bad++; return; }
+        const from = String(tr.querySelector('[data-qfrom]').value || '').trim() || today;
+        const already = quotePrice(p, name, from);
+        if (already != null && Math.abs(already - price) < 0.005) return;
+        const had = quoteEntries(p, name).length > 0;
+        setQuote(p, name, price, from);
+        had ? changed++ : added++;
       });
-      p.quotes = quotes;
-      p.quotesInit = true;
+      // 取消勾选 / 移除的客户：连同历史一起删掉
+      p.quotes = p.quotes.filter(q => keep.has(norm(q.customer)));
       await save(); closeModal(); render();
-      toast(blank ? `已保存 ${quotes.length} 条报价，${blank} 个客户没填价格已忽略。` : `已保存 ${quotes.length} 条客户报价。`);
+      const parts = [];
+      if (added) parts.push(`新增 ${added} 个客户价`);
+      if (changed) parts.push(`记录 ${changed} 条调价`);
+      if (bad) parts.push(`${bad} 个价格无效已忽略`);
+      toast(parts.length ? `已保存：${parts.join('，')}。` : '没有需要保存的价格变化。');
     };
+  }
+  function quoteHistoryModal(pid, customerName) {
+    const p = pById(pid);
+    if (!p) return;
+    const list = quoteEntries(p, customerName);
+    const rows = list.length
+      ? list.map(q => `<tr><td>${q.from ? esc(q.from) : '最早（未标注日期）'}</td><td class="numeric">¥${reconMoney(q.price)}</td><td><button type="button" class="text-link danger" data-del-quote="${esc(String(q.from || ''))}">删除</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty-cell">还没有价格记录</td></tr>';
+    openModal(`价格历史 · ${customerName}`, `
+      <p class="muted">${esc(p.name)} 给「${esc(customerName)}」的历次价格。对账时按下单日期取当天生效的那一条。</p>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>生效日期</th><th>价格</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="muted">删除某条后，从该日期起会改用上一条价格；这会影响该日期之后重新生成的对账单，请谨慎。</p>
+    `, `<button class="btn secondary" id="q-hist-back">返回报价单</button><button class="btn" data-cancel>关闭</button>`, true);
+    $('#q-hist-back').onclick = () => { closeModal(); quoteModal(pid); };
+    $$('[data-del-quote]').forEach(b => b.onclick = async () => {
+      const from = b.dataset.delQuote;
+      p.quotes = p.quotes.filter(q => !(norm(q.customer) === norm(customerName) && String(q.from || '') === from));
+      await save();
+      toast('已删除该条价格记录。');
+      quoteHistoryModal(pid, customerName);
+    });
   }
   const POOL_COMMON = ['no', 'supplier', 'name', 'spec', 'netContent', 'cost', 'suggestPrice', 'internalSku', 'supplierSku', 'barcode', 'status'];
   const poolCell = v => v === '' || v == null ? '<span class="muted">—</span>' : esc(v);
