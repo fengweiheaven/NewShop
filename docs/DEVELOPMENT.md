@@ -124,7 +124,7 @@ python -m http.server 8765 --directory dist
 | 实体 | 核心字段 | 说明 |
 | --- | --- | --- |
 | Supplier | `id, name, contact, phone, note, template, derived` | 每个供应商保存一份当前模板配置；`derived` 表示该供应商来自报价单「按品牌推断」，需人工核对供货主体 |
-| Product | `id, internalSku, name, spec, unit, supplierId, supplierSku, aliases`，报价单导入后另有 `brand, category, barcode, groupPrice, cost, broadcastPrice, suggestPrice, marginOwn, marginBroadcast, jdPrice, link, sourceFile` | 每个标准商品关联一个供应商与供应商商品编码；`barcode` 为 69 码，`cost` 为供价/进货价，`groupPrice` 为集采价，`broadcastPrice` 为广电供价，两个 `margin*` 是 0–1 的毛利率 |
+| Product | `id, internalSku, name, spec, unit, supplierId, supplierSku, aliases, quotes`，报价单导入后另有 `brand, category, barcode, groupPrice, cost, broadcastPrice, suggestPrice, marginOwn, marginBroadcast, jdPrice, link, sourceFile` | 每个标准商品关联一个供应商与供应商商品编码；`barcode` 为 69 码，`cost` 为供价/进货价，`groupPrice` 为集采价，`broadcastPrice` 为广电供价，两个 `margin*` 是 0–1 的毛利率；`quotes` 是该商品的客户价格历史（`{customer, price, from}`），`costHistory` 是供价历史（`{price, from}`），`cost` 为当前供价镜像 |
 | Customer | `id, name, companyName, creditCode, companyAddress, contact, phone, bankName, bankBranch, bankCode, bankAccount, license, businessScope, note, createdAt` | 给订单的客户；名称按 `norm()` 查重，订单只按名称关联，不做改名传播 |
 | Recharge | `id, kind, name, amount, date, note, createdAt` | 充值流水，`kind` 为 `customer` / `supplier`，按名称关联对应对象；总充值 = 同名同类型记录之和 |
 | Alias | `customer, name, spec, code` | 空客户表示通用别名；规格可作为精确约束。`code` 的界面能力见第 6 节 |
@@ -269,6 +269,10 @@ python -m http.server 8765 --directory dist
   - 取消勾选或点「移除」，保存时连同该客户的全部历史一起删除。
   - 取价函数 `quoteHit(product, customer, dateKey)` / `quotePrice(...)`：在按生效日期升序的列表里，取「`from` 为空或 `from <= dateKey`」的最后一条；`dateKey` 为空时取最新一条。对账用的日期由 `orderPriceDate(order)` 决定：优先订单自带的下单时间（`order.date`），没有则退回该批次的导入日期。
   - 因此**改价只影响生效日之后**：11 月的订单永远算 11 月生效的那条价，12 月起的订单算新价；重新导出旧月份的对账单结果不变。
+- 供应商供价（一件代发价）用同一套机制：`product.costHistory = [{ price, from }]`，`cost` 字段保留为「当前生效价」的镜像。
+  - 商品表每行的「供价」按钮打开 `costHistoryModal(pid)`：列出历次供价及生效日期，可新增（填新供价 + 生效日期）或删除。
+  - 在商品编辑弹窗改「一件代发价格」、或导入商品池 / 导入供应商报价单时，`syncCostToday(product)` 会把变化记成一条当天生效的记录（首次建价则记为「最早」），不会覆盖旧价。
+  - 供应商对账用 `costHit(product, orderPriceDate(order))` 取价：11 月订单用 11 月的供价，12 月起用新供价。只有完全没有供价历史的旧数据才退回读 `cost` 字段。
 
 ## 6. 模块三：订单采集与匹配
 
@@ -499,7 +503,7 @@ python -m http.server 8765 --directory dist
 | 口径 | 分组 | 价格来源 | 合计含义 | 导出文件 |
 | --- | --- | --- | --- | --- |
 | 客户对账（默认） | 订单客户 | 该客户、该商品在**订单日期当天生效**的报价（`quoteHit`），没有报价才退回订单 `unitPrice` | 应收合计 | `客户_客户对账_日期.xlsx` |
-| 供应商对账 | 商品所属供应商 | 商品档案 `cost`（供价/进货价） | 应付合计 | `供应商_供应商对账_日期.xlsx` |
+| 供应商对账 | 商品所属供应商 | 该商品在**订单日期当天生效**的供价（`costHit` / `costHistory`），没有历史才退回商品档案 `cost` | 应付合计 | `供应商_供应商对账_日期.xlsx` |
 
 > 客户价是「按日期生效的历史价格」：11 月的订单永远用 11 月生效价，12 月起的订单用新价。改价只在报价单里追加一条带生效日期的记录，不改动历史，也不会让旧月份的对账单变数。单价列悬停会显示该价格从哪天开始生效。
 
