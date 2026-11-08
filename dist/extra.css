@@ -295,4 +295,6 @@ body.idle-locked{overflow:hidden}
 .quote-filter{display:flex;align-items:center;gap:10px;margin:2px 0 10px}
 .quote-filter input{flex:1;max-width:320px;height:32px}
 .quote-filter .muted{font-size:11px;white-space:nowrap}
+.quote-table input[type="number"]{width:110px}
+.quote-table input[type="date"]{width:140px}
 .quote-check[hidden]{display:none}
