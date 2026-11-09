@@ -567,10 +567,23 @@
     if (!t) return '';
     return t.length > n ? t.slice(0, n) + '…' : t;
   }
+  function exportBlockReason(r) {
+    const stt = status(r);
+    if (stt.key !== 'ready' || !stt.product) return '';
+    const sup = sById(stt.product.supplierId);
+    if (!sup) return '供应商已失效';
+    const tpl = effectiveTemplate(sup);
+    if (!tpl || !(tpl.columns || []).length) return '该供应商还没有设置导单格式';
+    const issues = exportIssues({ supplier: sup, rows: [exportRow(r, stt.product)] });
+    return issues.length ? issues[0] : '';
+  }
   function exportBadge(r) {
-    if (!r.exportedAt) return '<span class="pill neutral">未导出</span>';
-    const t = new Date(r.exportedAt);
-    if (isNaN(t.getTime())) return '<span class="pill neutral">未导出</span>';
+    const t = r.exportedAt ? new Date(r.exportedAt) : null;
+    if (!t || isNaN(t.getTime())) {
+      const reason = exportBlockReason(r);
+      if (reason) return `<span class="pill warning" title="${esc(reason)}">待导出</span><small class="export-time">${esc(String(reason).slice(0, 14))}</small>`;
+      return '<span class="pill neutral">未导出</span>';
+    }
     const p = n => String(n).padStart(2, '0');
     return `<span class="pill success">已导出</span><small class="export-time">${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}</small>`;
   }
