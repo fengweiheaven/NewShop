@@ -1711,7 +1711,7 @@
       paidAmount: order.paidAmount || '',
       productType: order.productType || '',
       erpCode: order.erpCode || order.barcode || '',
-      importedAt: (() => { const b = state.batches.find(x => x.id === order.batchId); return b ? String(b.createdAt || '').slice(0, 10) : ''; })(),
+      importedAt: (() => { const bt = state.batches.find(x => x.id === order.batchId); if (!bt || !bt.createdAt) return ''; const d = new Date(bt.createdAt); return isNaN(d.getTime()) ? '' : dateKey(d); })(),
       handled: status(order).key === 'ready' ? '是' : '否'
     };
   }
@@ -1771,7 +1771,13 @@
     if (e && !isNaN(e.getTime()) && t > e) return false;
     return true;
   }
+  function ensureExportRange() {
+    if (!exportFrom && !exportTo && exportPreset && exportPreset !== 'all' && exportPreset !== 'custom') {
+      applyExportPreset(exportPreset);
+    }
+  }
   function exportScopedRows() {
+    ensureExportRange();
     return activeRows().filter(inExportRange);
   }
   function exportRangeLabel() {
