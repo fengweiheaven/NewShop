@@ -1715,7 +1715,7 @@
       handled: status(order).key === 'ready' ? '是' : '否'
     };
   }
-  // 导出时间范围：按订单时间过滤（优先下单时间，没有则用批次导入时间）。
+  // 导出时间范围：下单时间或批次导入时间，任一个落在区间内即算命中。
   function parseDateTime(text) {
     const s = String(text == null ? '' : text).trim();
     if (!s) return null;
@@ -1760,11 +1760,19 @@
   const EXPORT_PRESETS = [['today', '今天'], ['yesterday', '昨天'], ['thisWeek', '本周'], ['lastWeek', '上周'], ['thisMonth', '本月'], ['lastMonth', '上月'], ['all', '全部'], ['custom', '自定义']];
   function inExportRange(o) {
     if (!exportFrom && !exportTo) return true;
-    const t = orderTimestamp(o);
-    if (!t) return false;
-    if (exportFrom) { const f = new Date(exportFrom); if (!isNaN(f.getTime()) && t < f) return false; }
-    if (exportTo) { const e = new Date(exportTo); if (!isNaN(e.getTime()) && t > e) return false; }
-    return true;
+    const stamps = [];
+    const own = orderTimestamp(o);
+    if (own) stamps.push(own);
+    const batch = state.batches.find(x => x.id === o.batchId);
+    if (batch && batch.createdAt) { const t = new Date(batch.createdAt); if (!isNaN(t.getTime())) stamps.push(t); }
+    if (!stamps.length) return false;
+    const f = exportFrom ? new Date(exportFrom) : null;
+    const e = exportTo ? new Date(exportTo) : null;
+    return stamps.some(t => {
+      if (f && !isNaN(f.getTime()) && t < f) return false;
+      if (e && !isNaN(e.getTime()) && t > e) return false;
+      return true;
+    });
   }
   function exportScopedRows() {
     return activeRows().filter(inExportRange);
